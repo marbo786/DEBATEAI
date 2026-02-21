@@ -126,16 +126,6 @@ export GROQ_API_KEY="your-key-here"     # macOS/Linux
 
 If unset or if API fails, DebateAI gracefully falls back to template claims.
 
-### Frontend API base (for separate Vercel deployments)
-
-If frontend and backend are deployed as separate Vercel projects, set this env var in the **frontend** project:
-
-```bash
-VITE_API_BASE_URL=https://<your-backend>.vercel.app
-```
-
-When this value is set, frontend requests are sent to `<VITE_API_BASE_URL>/api/*`.
-
 ---
 
 ## API reference
