@@ -133,7 +133,7 @@ class MinimaxAgent:
     def _minimax_max(
         self, state: DebateState, depth: int, alpha: float, beta: float
     ) -> float:
-        if depth <= 0 or state.round_number >= state.max_rounds:
+        if depth <= 0 or self._is_terminal(state):
             return eval_state(state, self.belief_model, Side.PRO)
         candidates = self.arg_gen.generate_arguments(
             Side.PRO,
@@ -168,7 +168,7 @@ class MinimaxAgent:
     def _minimax_min(
         self, state: DebateState, depth: int, alpha: float, beta: float
     ) -> float:
-        if depth <= 0 or state.round_number >= state.max_rounds:
+        if depth <= 0 or self._is_terminal(state):
             return eval_state(state, self.belief_model, Side.PRO)
         candidates = self.arg_gen.generate_arguments(
             Side.CON,
@@ -213,3 +213,8 @@ class MinimaxAgent:
             }
             for e in self.pruning_log
         ]
+
+    @staticmethod
+    def _is_terminal(state: DebateState) -> bool:
+        """Terminal when the configured number of full rounds has been played."""
+        return state.round_number >= (state.max_rounds * 2)
