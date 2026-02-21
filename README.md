@@ -1,23 +1,104 @@
-# DebateAI: Watch Algorithms Argue
+# DebateAI
 
-An AI Political Debate Simulator where two autonomous agents debate a user-provided topic using **adversarial search** (Minimax + Alpha-Beta), **logical reasoning**, **knowledge representation**, and **probabilistic audience belief**.
+DebateAI is a full-stack AI debate simulator where two autonomous agents (Pro and Con) argue a user-provided topic.
 
-## Run locally
+The project demonstrates core AI concepts in an explainable way:
+- **adversarial search** (minimax + alpha-beta pruning),
+- **structured argument generation** (claim + premises + inference),
+- **probabilistic belief updates** for audience stance,
+- optional **external factual grounding** through the Groq API.
 
-### Backend (Python)
+---
+
+## Table of Contents
+
+- [What this project does](#what-this-project-does)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [API reference](#api-reference)
+- [How the debate engine works](#how-the-debate-engine-works)
+- [Frontend behavior](#frontend-behavior)
+- [Development workflow](#development-workflow)
+- [Troubleshooting](#troubleshooting)
+- [Additional docs](#additional-docs)
+
+---
+
+## What this project does
+
+1. Accepts a debate topic from the UI.
+2. Optionally fetches pro/con factual claims from Groq (if `GROQ_API_KEY` is set).
+3. Runs a complete debate in the backend for 4 to 6 rounds.
+4. Produces a structured history of arguments and belief changes.
+5. Returns a summary (winner, percentages, turning point).
+6. Lets users override audience stance in the UI and export a summary card image.
+
+---
+
+## Tech stack
+
+### Backend
+- Python 3.10+
+- Flask + Flask-CORS
+- `httpx` for optional Groq API calls
+
+### Frontend
+- React (Vite)
+- Tailwind CSS
+- `html2canvas` for summary image export
+
+---
+
+## Project structure
+
+```text
+DEBATEAI/
+├── backend/
+│   ├── app.py                 # Flask routes and request handling
+│   ├── run.py                 # server entrypoint
+│   ├── requirements.txt
+│   └── engine/
+│       ├── state.py           # dataclasses and state serialization
+│       ├── reasoning.py       # argument generation logic
+│       ├── belief.py          # audience belief model
+│       ├── minimax.py         # minimax + alpha-beta pruning
+│       ├── debate.py          # orchestration of full debate runs
+│       └── facts_api.py       # optional Groq fact retrieval
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── api.js             # backend API client wrappers
+│   │   └── components/
+│   └── package.json
+├── docs/
+│   ├── API.md
+│   ├── ENGINE.md
+│   ├── FRONTEND.md
+│   └── DEPLOYMENT.md
+├── ARCHITECTURE.md
+└── README.md
+```
+
+---
+
+## Quick start
+
+## 1) Backend
 
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate   # Windows
-# source venv/bin/activate  # macOS/Linux
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate         # Windows PowerShell/CMD
 pip install -r requirements.txt
 python run.py
 ```
 
-API runs at **http://127.0.0.1:5000**.
+Backend default URL: `http://127.0.0.1:5000`
 
-### Frontend (React + Vite + Tailwind)
+## 2) Frontend
 
 ```bash
 cd frontend
@@ -25,36 +106,102 @@ npm install
 npm run dev
 ```
 
-App runs at **http://localhost:5173**. It proxies `/api` to the backend.
+Frontend default URL: `http://localhost:5173`
 
-1. Enter a debate topic and click **Start Debate**.
-2. View Pro vs Con panels and the audience belief meter.
-3. After the debate, use the summary card: **Download as image**, and **Override audience** (Pro / Neutral / Con) to see recalculated percentages.
+Vite proxies `/api/*` to backend during development.
 
-## Architecture
+---
 
-- **Backend** (`backend/`): Flask API; engine in `engine/` (state, reasoning, belief, minimax, debate).
-- **Frontend** (`frontend/`): React + Tailwind; components for topic input, agent panels, belief meter, summary card.
+## Configuration
 
-See **ARCHITECTURE.md** for data contracts, module roles, and integration plan.
+### Optional: Groq API integration
 
-## Concepts demonstrated
+Set `GROQ_API_KEY` before starting backend:
 
-- **Adversarial reasoning**: Minimax with Alpha-Beta pruning (depth 2–3); Pro maximizes audience belief, Con minimizes.
-- **Logical inference**: Template-based causal, tradeoff, ethical, and risk reasoning; each argument has premises and inference.
-- **Probabilistic belief**: Audience belief in [0, 1] updated each round from argument strengths; simple weighted update.
-- **Decision theory**: Agents choose moves to maximize/minimize expected belief impact.
+```bash
+export GROQ_API_KEY="your-key-here"     # macOS/Linux
+# set GROQ_API_KEY=your-key-here         # Windows cmd
+# $env:GROQ_API_KEY="your-key-here"     # Windows PowerShell
+```
 
-Single reasoning system; no personality variants. Kept clear and implementable for an introductory AI course.
+If unset or if API fails, DebateAI gracefully falls back to template claims.
 
-## Real-world facts (Groq API)
+### Frontend API base (for separate Vercel deployments)
 
-For a more realistic debate, the app can fetch **pro/con facts** for any topic from the **Groq API** (free tier).
+If frontend and backend are deployed as separate Vercel projects, set this env var in the **frontend** project:
 
-1. Get a free API key at [console.groq.com](https://console.groq.com).
-2. Set it in your environment before starting the backend:
-   - Windows (PowerShell): `$env:GROQ_API_KEY="your-key-here"`
-   - Windows (cmd): `set GROQ_API_KEY=your-key-here`
-   - macOS/Linux: `export GROQ_API_KEY=your-key-here`
-3. Start a debate: if the key is set, the backend calls Groq once to get factual pro and con claims for your topic. If the key is missing or the API fails, the app falls back to generic template claims.
-4. When API facts are used, the UI shows an **"Using API facts"** badge next to the debate topic.
+```bash
+VITE_API_BASE_URL=https://<your-backend>.vercel.app
+```
+
+When this value is set, frontend requests are sent to `<VITE_API_BASE_URL>/api/*`.
+
+---
+
+## API reference
+
+Detailed API documentation: **[`docs/API.md`](docs/API.md)**.
+
+Available endpoints:
+- `POST /api/start`
+- `GET /api/state`
+- `GET|POST /api/summary`
+
+---
+
+## How the debate engine works
+
+Detailed engine docs: **[`docs/ENGINE.md`](docs/ENGINE.md)**.
+
+At a high level:
+- `ArgumentGenerator` creates candidate pro/con arguments.
+- `MinimaxAgent` chooses the strongest move for each side.
+- `BeliefModel` updates audience belief after each move.
+- `DebateRunner` executes alternating turns and computes winner + turning point.
+
+---
+
+## Frontend behavior
+
+Detailed UI docs: **[`docs/FRONTEND.md`](docs/FRONTEND.md)**.
+
+The frontend:
+- starts debates,
+- visualizes round-by-round arguments,
+- displays belief and winner,
+- allows audience override,
+- exports summary card image.
+
+---
+
+## Development workflow
+
+### Validate backend syntax
+```bash
+python -m compileall backend/app.py backend/engine
+```
+
+### Build frontend
+```bash
+cd frontend && npm run build
+```
+
+---
+
+## Troubleshooting
+
+- **`topic is required` (400)**: Ensure non-empty topic in `/api/start` payload.
+- **No API facts badge in UI**: Verify `GROQ_API_KEY` is set and valid.
+- **CORS/proxy issues locally**: Ensure backend is running on port `5000` and frontend on `5173`.
+- **summary endpoint returns 404**: Run `/api/start` first (state is in-memory).
+
+---
+
+## Additional docs
+
+- [API Reference](docs/API.md)
+- [Engine Deep Dive](docs/ENGINE.md)
+- [Frontend Guide](docs/FRONTEND.md)
+- [Deployment & Operations](docs/DEPLOYMENT.md)
+- [Architecture Notes](ARCHITECTURE.md)
+

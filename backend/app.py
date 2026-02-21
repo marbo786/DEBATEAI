@@ -41,7 +41,12 @@ def start():
     if not topic:
         return jsonify({"error": "topic is required"}), 400
 
-    max_rounds = min(6, max(4, int(data.get("max_rounds", 6))))
+    try:
+        requested_rounds = int(data.get("max_rounds", 6))
+    except (TypeError, ValueError):
+        return jsonify({"error": "max_rounds must be an integer"}), 400
+
+    max_rounds = min(6, max(4, requested_rounds))
     api_facts = get_facts_from_groq(topic)
     facts_from_api = bool(api_facts)
     initial_pro, initial_con = api_facts if api_facts else (None, None)
@@ -79,7 +84,10 @@ def summary():
         data = request.get_json() or {}
         v = data.get("override_audience")
         if v is not None:
-            override = max(0.0, min(1.0, float(v)))
+            try:
+                override = max(0.0, min(1.0, float(v)))
+            except (TypeError, ValueError):
+                return jsonify({"error": "override_audience must be a number between 0 and 1"}), 400
     return jsonify(_summary(_current_state, override_belief=override))
 
 
