@@ -60,67 +60,39 @@ def _summary(state: DebateState, override_belief: float | None = None) -> dict:
     }
 
 
-def create_app() -> Flask:
-    app = Flask(__name__)
-    CORS(app)
+@app.route("/api/start", methods=["POST"])
+def start():
+    """Start a new debate. Body: { "topic": "string" }. Runs full debate, returns state + summary."""
+    global _current_state, _current_pruning_logs
+    data = request.get_json() or {}
+    topic = (data.get("topic") or "").strip()
+    if not topic:
+        return jsonify({"error": "topic is required"}), 400
+
+    try:
+        requested_rounds = int(data.get("max_rounds", 6))
+    except (TypeError, ValueError):
+        return jsonify({"error": "max_rounds must be an integer"}), 400
+
+    max_rounds = min(6, max(4, requested_rounds))
+    api_facts = get_facts_from_groq(topic)
+    facts_from_api = bool(api_facts)
+    initial_pro, initial_con = api_facts if api_facts else (None, None)
+    runner = DebateRunner(max_rounds=max_rounds)
+    _current_state, _current_pruning_logs = runner.run(
+        topic, initial_pro=initial_pro, initial_con=initial_con
+    )
 
     @app.route("/api/start", methods=["POST"])
     def start():
         data = request.get_json() or {}
-        topic = (data.get("topic") or "").strip()
-        if not topic:
-            return jsonify({"error": "topic is required"}), 400
-
-        try:
-            requested_rounds = parse_int(data.get("max_rounds"), default=6, field_name="max_rounds")
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
-        max_rounds = int(clamp(requested_rounds, 4, 6))
-        api_facts = get_facts_from_groq(topic)
-        facts_from_api = bool(api_facts)
-        initial_pro, initial_con = api_facts if api_facts else (None, None)
-
-        runner = DebateRunner(max_rounds=max_rounds)
-        store.state, store.pruning_logs = runner.run(
-            topic, initial_pro=initial_pro, initial_con=initial_con
-        )
-
-        return jsonify({
-            "state": store.state.to_dict(),
-            "summary": _summary(store.state),
-            "pruning_logs": store.pruning_logs,
-            "facts_from_api": facts_from_api,
-        })
-
-    @app.route("/api/state", methods=["GET"])
-    def state():
-        if store.state is None:
-            return jsonify({"state": None, "summary": None})
-        return jsonify({
-            "state": store.state.to_dict(),
-            "summary": _summary(store.state),
-        })
-
-    @app.route("/api/summary", methods=["GET", "POST"])
-    def summary():
-        if store.state is None:
-            return jsonify({"error": "no debate run yet"}), 404
-
-        override = None
-        if request.method == "POST":
-            data = request.get_json() or {}
-            v = data.get("override_audience")
-            if v is not None:
-                try:
-                    override = clamp(parse_float(v, "override_audience"), 0.0, 1.0)
-                except ValueError as exc:
-                    return jsonify({"error": str(exc)}), 400
-
-        return jsonify(_summary(store.state, override_belief=override))
-
-    return app
-
+        v = data.get("override_audience")
+        if v is not None:
+            try:
+                override = max(0.0, min(1.0, float(v)))
+            except (TypeError, ValueError):
+                return jsonify({"error": "override_audience must be a number between 0 and 1"}), 400
+    return jsonify(_summary(_current_state, override_belief=override))
 
 app = create_app()
 

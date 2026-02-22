@@ -1,34 +1,65 @@
-# Deployment (Vercel)
+# Deployment & Operations
 
-## Recommended architecture
-Deploy as two separate Vercel projects:
+This project can be deployed as separate frontend and backend services.
 
-- Backend project (root: `backend`)
-- Frontend project (root: `frontend`)
+## Local runtime assumptions
 
-## Backend setup
-1. Import repo in Vercel.
-2. Set root directory to `backend`.
-3. Optional env var: `GROQ_API_KEY`.
-4. Deploy.
+- Backend listens on port `5000`.
+- Frontend dev server listens on port `5173` and proxies `/api` to backend.
 
-Backend routing is handled by `backend/vercel.json` and exposes:
-- `POST /api/start`
-- `GET /api/state`
-- `GET|POST /api/summary`
+---
 
-## Frontend setup
-1. Create second Vercel project from same repo.
-2. Set root directory to `frontend`.
-3. Add env var:
-   - `VITE_API_BASE_URL=https://<backend>.vercel.app`
-4. Deploy.
+## Environment variables
 
-Frontend SPA routing is handled by `frontend/vercel.json`.
+### Backend
 
-## Health checks
+- `GROQ_API_KEY` (optional): enables real-world pro/con fact generation.
+
+No other runtime env vars are required currently.
+
+---
+
+## Production considerations
+
+1. **Persisted state**
+   - Current backend stores one debate in global process memory.
+   - For multi-user deployment, replace with per-user/session persistence.
+
+2. **Concurrency**
+   - Run backend behind a WSGI server (`gunicorn`, `uwsgi`, etc.).
+   - Add request limits/timeouts to control compute-heavy searches.
+
+3. **CORS and routing**
+   - Restrict CORS origins in production.
+   - If hosting frontend and backend on different domains, configure `API_BASE` accordingly.
+
+4. **Secret management**
+   - Store `GROQ_API_KEY` via platform secret manager (not in source).
+
+5. **Observability**
+   - Add structured logs for `/api/start` latency and fallback rate (`facts_from_api`).
+
+---
+
+## Suggested deployment model
+
+- Frontend: static hosting (Vercel/Netlify/S3+CDN)
+- Backend: containerized Flask app (Render/Fly.io/railway/self-hosted VM)
+
+---
+
+## Health checks (manual)
+
+After deploy:
+
 ```bash
-curl https://<backend>.vercel.app/api/state
-curl -X POST https://<backend>.vercel.app/api/start -H "Content-Type: application/json" -d '{"topic":"AI policy"}'
-curl https://<backend>.vercel.app/api/summary
+curl https://<backend-host>/api/state
+curl -X POST https://<backend-host>/api/start -H "Content-Type: application/json" -d '{"topic":"Nuclear energy"}'
+curl https://<backend-host>/api/summary
 ```
+
+Expected:
+- `state` null before first run,
+- successful start with populated state,
+- summary available after start.
+
