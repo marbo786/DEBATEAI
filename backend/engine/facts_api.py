@@ -1,8 +1,6 @@
-"""
-Fetch pro/con debate facts from Groq API (free tier).
-When GROQ_API_KEY is set, one request per topic returns structured pro and con claims.
-"""
+"""Fetch pro/con debate facts from Groq API."""
 import json
+import logging
 import os
 import re
 
@@ -12,25 +10,37 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
 TIMEOUT = 30.0
 
+logger = logging.getLogger(__name__)
+
+
+def _strip_markdown_fence(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    return text
+
+
+def _normalize_claims(values: list) -> list[str]:
+    return [str(x).strip() for x in values if str(x).strip()]
+
 
 def get_facts_from_groq(topic: str) -> tuple[list[str], list[str]] | None:
-    """
-    Call Groq chat completions to get 5-6 pro and con factual claims for the debate topic.
-    Returns (pro_list, con_list) on success, None on missing key, network error, or invalid response.
-    """
+    """Return (pro_claims, con_claims) from Groq, or None on any failure."""
     key = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not key:
+        logger.info("GROQ_API_KEY not set; using template claims")
         return None
 
-    prompt = f"""For the debate topic "{topic}", provide factual claims only. No opinions or rhetoric.
+    prompt = f'''For the debate topic "{topic}", provide factual claims only. No opinions or rhetoric.
 Output a single JSON object with exactly two keys: "pro" and "con".
 - "pro": array of 5 or 6 short factual sentences supporting the topic.
 - "con": array of 5 or 6 short factual sentences opposing the topic.
-Each claim should be one sentence. Output valid JSON only, no markdown or code fences."""
+Each claim should be one sentence. Output valid JSON only, no markdown or code fences.'''
 
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
-            r = client.post(
+            response = client.post(
                 GROQ_URL,
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -42,29 +52,31 @@ Each claim should be one sentence. Output valid JSON only, no markdown or code f
                     "temperature": 0.3,
                 },
             )
-        r.raise_for_status()
-        data = r.json()
+        response.raise_for_status()
+        data = response.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-    except Exception:
+    except Exception as exc:
+        logger.warning("Groq request failed: %s", exc)
         return None
 
-    # Strip markdown code block if present
-    content = content.strip()
-    if content.startswith("```"):
-        content = re.sub(r"^```(?:json)?\s*", "", content)
-        content = re.sub(r"\s*```\s*$", "", content)
+    content = _strip_markdown_fence(content)
 
     try:
-        obj = json.loads(content)
+        payload = json.loads(content)
     except json.JSONDecodeError:
+        logger.warning("Groq returned non-JSON content")
         return None
 
-    pro = obj.get("pro")
-    con = obj.get("con")
+    pro = payload.get("pro")
+    con = payload.get("con")
     if not isinstance(pro, list) or not isinstance(con, list):
+        logger.warning("Groq response missing list fields 'pro' and 'con'")
         return None
-    pro = [str(x).strip() for x in pro if x]
-    con = [str(x).strip() for x in con if x]
-    if len(pro) < 2 or len(con) < 2:
+
+    pro_claims = _normalize_claims(pro)
+    con_claims = _normalize_claims(con)
+    if len(pro_claims) < 2 or len(con_claims) < 2:
+        logger.warning("Groq returned too few claims (pro=%s, con=%s)", len(pro_claims), len(con_claims))
         return None
-    return (pro, con)
+
+    return pro_claims, con_claims

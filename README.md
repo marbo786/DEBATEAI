@@ -95,6 +95,7 @@ source venv/bin/activate        # macOS/Linux
 pip install -r requirements.txt
 python run.py
 ```
+Backend: `http://127.0.0.1:5000`
 
 Backend default URL: `http://127.0.0.1:5000`
 
@@ -105,6 +106,7 @@ cd frontend
 npm install
 npm run dev
 ```
+Frontend: `http://localhost:5173`
 
 Frontend default URL: `http://localhost:5173`
 
