@@ -1,60 +1,54 @@
-# DebateAI: Watch Algorithms Argue
+# DebateAI
 
-An AI Political Debate Simulator where two autonomous agents debate a user-provided topic using **adversarial search** (Minimax + Alpha-Beta), **logical reasoning**, **knowledge representation**, and **probabilistic audience belief**.
+DebateAI is a full-stack AI debate simulator (Flask backend + React frontend).
 
 ## Run locally
 
-### Backend (Python)
-
+### Backend
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate   # Windows
-# source venv/bin/activate  # macOS/Linux
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python run.py
 ```
+Backend: `http://127.0.0.1:5000`
 
-API runs at **http://127.0.0.1:5000**.
-
-### Frontend (React + Vite + Tailwind)
-
+### Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+Frontend: `http://localhost:5173`
 
-App runs at **http://localhost:5173**. It proxies `/api` to the backend.
+## Environment variables
 
-1. Enter a debate topic and click **Start Debate**.
-2. View Pro vs Con panels and the audience belief meter.
-3. After the debate, use the summary card: **Download as image**, and **Override audience** (Pro / Neutral / Con) to see recalculated percentages.
+- `GROQ_API_KEY` (backend, optional): enables factual pro/con claims from Groq.
+- `VITE_API_BASE_URL` (frontend, for separate deployment): backend base URL, e.g.
+  `https://<backend>.vercel.app`
 
-## Architecture
+## API endpoints
 
-- **Backend** (`backend/`): Flask API; engine in `engine/` (state, reasoning, belief, minimax, debate).
-- **Frontend** (`frontend/`): React + Tailwind; components for topic input, agent panels, belief meter, summary card.
+- `POST /api/start`
+- `GET /api/state`
+- `GET|POST /api/summary`
 
-See **ARCHITECTURE.md** for data contracts, module roles, and integration plan.
+## Vercel deployment (recommended)
 
-## Concepts demonstrated
+Deploy as two projects:
 
-- **Adversarial reasoning**: Minimax with Alpha-Beta pruning (depth 2–3); Pro maximizes audience belief, Con minimizes.
-- **Logical inference**: Template-based causal, tradeoff, ethical, and risk reasoning; each argument has premises and inference.
-- **Probabilistic belief**: Audience belief in [0, 1] updated each round from argument strengths; simple weighted update.
-- **Decision theory**: Agents choose moves to maximize/minimize expected belief impact.
+1. **Backend project**
+   - Root directory: `backend`
+   - Uses `backend/vercel.json`
+   - Optional env: `GROQ_API_KEY`
 
-Single reasoning system; no personality variants. Kept clear and implementable for an introductory AI course.
+2. **Frontend project**
+   - Root directory: `frontend`
+   - Uses `frontend/vercel.json`
+   - Env: `VITE_API_BASE_URL=https://<backend>.vercel.app`
 
-## Real-world facts (Groq API)
+## Notes
 
-For a more realistic debate, the app can fetch **pro/con facts** for any topic from the **Groq API** (free tier).
-
-1. Get a free API key at [console.groq.com](https://console.groq.com).
-2. Set it in your environment before starting the backend:
-   - Windows (PowerShell): `$env:GROQ_API_KEY="your-key-here"`
-   - Windows (cmd): `set GROQ_API_KEY=your-key-here`
-   - macOS/Linux: `export GROQ_API_KEY=your-key-here`
-3. Start a debate: if the key is set, the backend calls Groq once to get factual pro and con claims for your topic. If the key is missing or the API fails, the app falls back to generic template claims.
-4. When API facts are used, the UI shows an **"Using API facts"** badge next to the debate topic.
+- If Groq key is missing/invalid, app falls back to template claims.
+- Backend state is in-memory (single active debate).
