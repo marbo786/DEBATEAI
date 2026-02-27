@@ -4,10 +4,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from backend.domain.belief import BeliefModel
-from backend.domain.minimax import MinimaxAgent
-from backend.domain.reasoning import ArgumentGenerator
-from backend.domain.state import DebateState, RoundRecord, Side
+try:
+    from backend.domain.belief import BeliefModel
+    from backend.domain.minimax import MinimaxAgent
+    from backend.domain.reasoning import ArgumentGenerator
+    from backend.domain.state import DebateState, RoundRecord, Side
+except ModuleNotFoundError:  # Vercel backend project rooted at /backend
+    from domain.belief import BeliefModel
+    from domain.minimax import MinimaxAgent
+    from domain.reasoning import ArgumentGenerator
+    from domain.state import DebateState, RoundRecord, Side
 
 FactsProvider = Callable[[str], tuple[list[str], list[str]] | None]
 

@@ -5,8 +5,12 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
-from backend.services.debate_service import DebateService
-from backend.domain.state import DebateState
+try:
+    from backend.services.debate_service import DebateService
+    from backend.domain.state import DebateState
+except ModuleNotFoundError:  # Vercel backend project rooted at /backend
+    from services.debate_service import DebateService
+    from domain.state import DebateState
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 

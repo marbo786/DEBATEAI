@@ -4,9 +4,14 @@ from __future__ import annotations
 from flask import Flask
 from flask_cors import CORS
 
-from backend.api.routes import DebateStore, api_bp
-from backend.infra.groq_client import get_facts_from_groq
-from backend.services.debate_service import DebateService
+try:
+    from backend.api.routes import DebateStore, api_bp
+    from backend.infra.groq_client import get_facts_from_groq
+    from backend.services.debate_service import DebateService
+except ModuleNotFoundError:  # Vercel backend project rooted at /backend
+    from api.routes import DebateStore, api_bp
+    from infra.groq_client import get_facts_from_groq
+    from services.debate_service import DebateService
 
 
 def create_app() -> Flask:
