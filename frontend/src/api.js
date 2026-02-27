@@ -18,7 +18,7 @@ function getApiBases() {
 
   const bases = ["/api"];
 
-  // Hosted fallback when no explicit env var is set.
+  // Production fallback for split frontend/backend deployments when env is missing.
   if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
     bases.push("https://debateai-backend.vercel.app/api");
   }
@@ -26,21 +26,8 @@ function getApiBases() {
   return bases;
 }
 
-function buildUnreachableError(attemptedUrls) {
-  const attempts = attemptedUrls.join(", ");
-  return new Error(
-    [
-      "Cannot connect to DebateAI backend.",
-      `Tried: ${attempts}`,
-      "Local fix: start backend with `cd backend && python run.py`.",
-      "Hosted fix: set `VITE_API_BASE_URL` to your backend URL (example: https://your-backend.vercel.app) and redeploy frontend.",
-    ].join(" "),
-  );
-}
-
 async function fetchJson(path, options = {}, defaultError = "Request failed") {
   const bases = getApiBases();
-  const attemptedUrls = bases.map((base) => `${base}${path}`);
   let lastError = null;
 
   for (const base of bases) {
@@ -62,7 +49,9 @@ async function fetchJson(path, options = {}, defaultError = "Request failed") {
   }
 
   if (lastError instanceof TypeError) {
-    throw buildUnreachableError(attemptedUrls);
+    throw new Error(
+      "Unable to reach DebateAI backend. Check backend availability or set VITE_API_BASE_URL.",
+    );
   }
 
   throw lastError || new Error(defaultError);
