@@ -13,4 +13,8 @@ __all__ = [
     "BeliefModel",
     "MinimaxAgent",
     "DebateRunner",
+    "DebateStrategy",
+    "MinimaxStrategy",
+    "MonteCarloRolloutStrategy",
+    "BeamSearchStrategy",
 ]
