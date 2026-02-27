@@ -1,46 +1,25 @@
-"""Flask API for DebateAI."""
+"""Flask app factory for DebateAI."""
 from __future__ import annotations
 
-from typing import Any
-
-from flask import Flask, jsonify, request
+from flask import Flask
 from flask_cors import CORS
 
-from engine.debate import DebateRunner
-from engine.facts_api import get_facts_from_groq
-from engine.state import DebateState
+from backend.api.routes import DebateStore, api_bp
+from backend.infra.groq_client import get_facts_from_groq
+from backend.services.debate_service import DebateService
 
-
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
-
-
-def parse_int(value: Any, default: int, field_name: str) -> int:
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be an integer") from exc
-
-
-def parse_float(value: Any, field_name: str) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be a number between 0 and 1") from exc
-
-
-class DebateStore:
-    """In-memory state for one active debate."""
 
     def __init__(self) -> None:
         self.state: DebateState | None = None
         self.pruning_logs: list[dict] | None = None
         self.facts_from_api: bool = False
 
+    app.config["debate_service"] = DebateService()
+    app.config["debate_store"] = DebateStore()
+    app.config["facts_provider"] = get_facts_from_groq
 
-store = DebateStore()
+    app.register_blueprint(api_bp)
+    return app
 
 
 def _summary(state: DebateState, override_belief: float | None = None) -> dict:
@@ -138,6 +117,7 @@ def create_app() -> Flask:
 
 
 app = create_app()
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
