@@ -1,15 +1,9 @@
-# DebateAI Engine
-from .belief import BeliefModel
-from .debate import DebateRunner
-from .minimax import MinimaxAgent
-from .reasoning import ArgumentGenerator
-from .state import Argument, DebateState, Side
-from .strategies import (
-    BeamSearchStrategy,
-    DebateStrategy,
-    MinimaxStrategy,
-    MonteCarloRolloutStrategy,
-)
+# DebateAI Engine compatibility exports
+from backend.domain.state import DebateState, Argument, Side
+from backend.domain.reasoning import ArgumentGenerator
+from backend.domain.belief import BeliefModel
+from backend.domain.minimax import MinimaxAgent
+from backend.engine.debate import DebateRunner
 
 __all__ = [
     "DebateState",
