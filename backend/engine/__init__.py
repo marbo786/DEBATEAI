@@ -1,9 +1,15 @@
 # DebateAI Engine
-from .state import DebateState, Argument, Side
-from .reasoning import ArgumentGenerator
 from .belief import BeliefModel
-from .minimax import MinimaxAgent
 from .debate import DebateRunner
+from .minimax import MinimaxAgent
+from .reasoning import ArgumentGenerator
+from .state import Argument, DebateState, Side
+from .strategies import (
+    BeamSearchStrategy,
+    DebateStrategy,
+    MinimaxStrategy,
+    MonteCarloRolloutStrategy,
+)
 
 __all__ = [
     "DebateState",
@@ -13,4 +19,8 @@ __all__ = [
     "BeliefModel",
     "MinimaxAgent",
     "DebateRunner",
+    "DebateStrategy",
+    "MinimaxStrategy",
+    "MonteCarloRolloutStrategy",
+    "BeamSearchStrategy",
 ]
