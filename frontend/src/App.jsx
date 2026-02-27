@@ -7,9 +7,11 @@ export default function App() {
   const [debate, setDebate] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [overrideFeedback, setOverrideFeedback] = useState(null);
 
   async function handleStart(topic) {
     setError(null);
+    setOverrideFeedback(null);
     setLoading(true);
     try {
       const data = await import("./api").then((m) => m.startDebate(topic));
@@ -42,6 +44,18 @@ export default function App() {
             {error}
           </div>
         )}
+        {overrideFeedback && (
+          <div
+            className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+              overrideFeedback.type === "error"
+                ? "bg-red-900/30 border-red-700/50 text-red-200"
+                : "bg-emerald-900/30 border-emerald-700/50 text-emerald-200"
+            }`}
+            role="status"
+          >
+            {overrideFeedback.message}
+          </div>
+        )}
         {debate && (
           <>
             <DebateView
@@ -53,12 +67,24 @@ export default function App() {
               <SummaryCard
                 summary={debate.summary}
                 state={debate.state}
-                onOverride={(overrideAudience) =>
-                  import("./api")
-                    .then((m) => m.getSummary(overrideAudience))
-                    .then((s) => setDebate((d) => (d ? { ...d, summary: s } : d)))
-                    .catch(() => {})
-                }
+                onOverride={async (overrideAudience) => {
+                  setOverrideFeedback(null);
+                  try {
+                    const s = await import("./api").then((m) => m.getSummary(overrideAudience));
+                    setDebate((d) => (d ? { ...d, summary: s } : d));
+                    setOverrideFeedback({
+                      type: "success",
+                      message: "Summary updated for selected audience override.",
+                    });
+                    return true;
+                  } catch (e) {
+                    setOverrideFeedback({
+                      type: "error",
+                      message: e?.message ?? "Failed to override summary. Showing last confirmed server summary.",
+                    });
+                    return false;
+                  }
+                }}
               />
             )}
           </>
