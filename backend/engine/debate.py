@@ -1,5 +1,8 @@
 """Compatibility wrapper for legacy imports."""
-from backend.services.debate_service import DebateService
+try:
+    from backend.services.debate_service import DebateService
+except ModuleNotFoundError:  # Vercel backend project rooted at /backend
+    from services.debate_service import DebateService
 
 
 class DebateRunner(DebateService):

@@ -128,6 +128,18 @@ export GROQ_API_KEY="your-key-here"     # macOS/Linux
 
 If unset or if API fails, DebateAI gracefully falls back to template claims.
 
+
+### Frontend backend URL (hosted deployments)
+
+If frontend and backend are on different domains, set:
+
+```bash
+# frontend/.env.production
+VITE_API_BASE_URL=https://<your-backend-host>
+```
+
+Then redeploy the frontend.
+
 ---
 
 ## API reference
@@ -186,6 +198,7 @@ cd frontend && npm run build
 - **No API facts badge in UI**: Verify `GROQ_API_KEY` is set and valid.
 - **CORS/proxy issues locally**: Ensure backend is running on port `5000` and frontend on `5173`.
 - **summary endpoint returns 404**: Run `/api/start` first (state is in-memory).
+- **`Cannot connect to DebateAI backend`**: Start backend (`cd backend && python run.py`) for local dev, or set `VITE_API_BASE_URL` in frontend production env to your deployed backend URL and redeploy.
 
 ---
 
