@@ -1,19 +1,30 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 
 export default function SummaryCard({ summary, state, onOverride }) {
   const cardRef = useRef(null);
   const [downloading, setDownloading] = useState(false);
-  const [override, setOverride] = useState(null);
+  const [previewOverride, setPreviewOverride] = useState(null);
+  const [isOverrideLoading, setIsOverrideLoading] = useState(false);
 
   const s = summary ?? {};
-  const proPct = override != null ? Math.round(override * 100) : (s.final_pro_pct ?? 50);
-  const conPct = override != null ? 100 - proPct : (s.final_con_pct ?? 50);
+
+  useEffect(() => {
+    setPreviewOverride(null);
+  }, [summary]);
+
+  const effectiveProPct = useMemo(() => {
+    if (previewOverride == null) return s.final_pro_pct ?? 50;
+    return Math.round(previewOverride * 100);
+  }, [previewOverride, s.final_pro_pct]);
+
+  const proPct = effectiveProPct;
+  const conPct = previewOverride == null ? (s.final_con_pct ?? 50) : 100 - effectiveProPct;
   const winner =
-    override != null
-      ? override > 0.5
+    previewOverride != null
+      ? previewOverride > 0.5
         ? "Pro"
-        : override < 0.5
+        : previewOverride < 0.5
           ? "Con"
           : "Tie"
       : s.winner === "pro"
@@ -39,9 +50,22 @@ export default function SummaryCard({ summary, state, onOverride }) {
     }
   }
 
-  function handleOverride(value) {
-    setOverride(value);
-    if (typeof onOverride === "function") onOverride(value);
+  async function handleOverride(value) {
+    if (isOverrideLoading) return;
+    setPreviewOverride(value);
+    if (value == null || typeof onOverride !== "function") return;
+
+    setIsOverrideLoading(true);
+    try {
+      const succeeded = await onOverride(value);
+      if (!succeeded) {
+        setPreviewOverride(null);
+      }
+    } catch {
+      setPreviewOverride(null);
+    } finally {
+      setIsOverrideLoading(false);
+    }
   }
 
   return (
@@ -49,18 +73,19 @@ export default function SummaryCard({ summary, state, onOverride }) {
       <h2 className="font-display font-bold text-xl text-slate-100">
         Debate summary
       </h2>
+      {isOverrideLoading && (
+        <p className="text-xs text-slate-400" role="status">Updating summary…</p>
+      )}
       <div
         ref={cardRef}
         className="rounded-2xl border-2 border-slate-600 bg-slate-800 p-6 text-slate-100 shadow-xl"
       >
         <div className="flex flex-col gap-6">
-          {/* 1. Topic as main title */}
           <div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Topic</p>
             <p className="text-xl font-bold text-slate-100">{s.topic ?? state?.topic}</p>
           </div>
 
-          {/* 2. Winner with strong emphasis */}
           <div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Winner</p>
             <p
@@ -76,7 +101,6 @@ export default function SummaryCard({ summary, state, onOverride }) {
             </p>
           </div>
 
-          {/* 3. Final result: bar + large percentages */}
           <div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Final result</p>
             <div className="flex items-center gap-3 mb-2">
@@ -95,7 +119,6 @@ export default function SummaryCard({ summary, state, onOverride }) {
             </div>
           </div>
 
-          {/* 4. Turning point */}
           {s.turning_point_round != null && (
             <div>
               <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Turning point round</p>
@@ -119,8 +142,9 @@ export default function SummaryCard({ summary, state, onOverride }) {
           <button
             type="button"
             onClick={() => handleOverride(1)}
-            className={`rounded-md px-3 py-1.5 text-sm transition ${
-              override === 1 ? "bg-teal-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+            disabled={isOverrideLoading}
+            className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-50 ${
+              previewOverride === 1 ? "bg-teal-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
             Pro
@@ -128,8 +152,9 @@ export default function SummaryCard({ summary, state, onOverride }) {
           <button
             type="button"
             onClick={() => handleOverride(0.5)}
-            className={`rounded-md px-3 py-1.5 text-sm transition ${
-              override === 0.5 ? "bg-slate-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+            disabled={isOverrideLoading}
+            className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-50 ${
+              previewOverride === 0.5 ? "bg-slate-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
             Neutral
@@ -137,8 +162,9 @@ export default function SummaryCard({ summary, state, onOverride }) {
           <button
             type="button"
             onClick={() => handleOverride(0)}
-            className={`rounded-md px-3 py-1.5 text-sm transition ${
-              override === 0 ? "bg-amber-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+            disabled={isOverrideLoading}
+            className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-50 ${
+              previewOverride === 0 ? "bg-amber-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
             Con
@@ -146,7 +172,8 @@ export default function SummaryCard({ summary, state, onOverride }) {
           <button
             type="button"
             onClick={() => handleOverride(null)}
-            className="rounded-md px-3 py-1.5 text-sm bg-slate-700 text-slate-400 hover:bg-slate-600 transition"
+            disabled={isOverrideLoading}
+            className="rounded-md px-3 py-1.5 text-sm bg-slate-700 text-slate-400 hover:bg-slate-600 transition disabled:opacity-50"
           >
             Reset
           </button>
