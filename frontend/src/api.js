@@ -2,45 +2,78 @@
  * API client for DebateAI backend.
  *
  * Local dev defaults to Vite proxy (`/api` -> http://127.0.0.1:5000).
- * On Vercel (or any hosted frontend), set `VITE_API_BASE_URL`
- * to your deployed backend URL, e.g.:
- *   VITE_API_BASE_URL=https://debateai-backend.vercel.app
+ * On hosted frontend, set `VITE_API_BASE_URL` to your backend origin.
  */
 
-const API_BASE = (
-  import.meta.env.VITE_API_BASE_URL
-    ? `${import.meta.env.VITE_API_BASE_URL}`.replace(/\/$/, "")
-    : "/api"
-);
+const ENV_API_BASE = import.meta.env.VITE_API_BASE_URL
+  ? `${import.meta.env.VITE_API_BASE_URL}`.replace(/\/$/, "")
+  : null;
 
-function buildUrl(path) {
-  if (API_BASE.endsWith("/api")) {
-    return `${API_BASE}${path}`;
+function normalizeBase(base) {
+  return base.endsWith("/api") ? base : `${base}/api`;
+}
+
+function getApiBases() {
+  if (ENV_API_BASE) return [normalizeBase(ENV_API_BASE)];
+
+  const bases = ["/api"];
+
+  // Production fallback for split frontend/backend deployments when env is missing.
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    bases.push("https://debateai-backend.vercel.app/api");
   }
-  return `${API_BASE}/api${path}`;
+
+  return bases;
+}
+
+async function fetchJson(path, options = {}, defaultError = "Request failed") {
+  const bases = getApiBases();
+  let lastError = null;
+
+  for (const base of bases) {
+    const url = `${base}${path}`;
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `${defaultError}: ${res.status}`);
+      }
+      return await res.json();
+    } catch (error) {
+      lastError = error;
+      // Try next base only for network-level failures.
+      if (!(error instanceof TypeError)) {
+        break;
+      }
+    }
+  }
+
+  if (lastError instanceof TypeError) {
+    throw new Error(
+      "Unable to reach DebateAI backend. Check backend availability or set VITE_API_BASE_URL.",
+    );
+  }
+
+  throw lastError || new Error(defaultError);
 }
 
 export async function startDebate(topic, maxRounds = 6) {
-  const res = await fetch(buildUrl("/start"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic: topic.trim(), max_rounds: maxRounds }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Start failed: ${res.status}`);
-  }
-  return res.json();
+  return fetchJson(
+    "/start",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: topic.trim(), max_rounds: maxRounds }),
+    },
+    "Start failed",
+  );
 }
 
 export async function getState() {
-  const res = await fetch(buildUrl("/state"));
-  if (!res.ok) throw new Error("Failed to get state");
-  return res.json();
+  return fetchJson("/state", {}, "Failed to get state");
 }
 
 export async function getSummary(overrideAudience = null) {
-  const url = buildUrl("/summary");
   const options =
     overrideAudience != null
       ? {
@@ -49,7 +82,6 @@ export async function getSummary(overrideAudience = null) {
           body: JSON.stringify({ override_audience: overrideAudience }),
         }
       : {};
-  const res = await fetch(url, options);
-  if (!res.ok) throw new Error("Failed to get summary");
-  return res.json();
+
+  return fetchJson("/summary", options, "Failed to get summary");
 }
