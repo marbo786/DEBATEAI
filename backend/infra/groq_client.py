@@ -8,7 +8,7 @@ import httpx
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
-TIMEOUT = 30.0
+TIMEOUT = 4.0
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ Output a single JSON object with exactly two keys: "pro" and "con".
 Each claim should be one sentence. Output valid JSON only, no markdown or code fences.'''
 
     try:
+        logger.warning(f"Starting httpx post to {GROQ_URL}")
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.post(
                 GROQ_URL,
@@ -52,11 +53,12 @@ Each claim should be one sentence. Output valid JSON only, no markdown or code f
                     "temperature": 0.3,
                 },
             )
+        logger.warning(f"Finished httpx post to {GROQ_URL}. Status: {response.status_code}")
         response.raise_for_status()
         data = response.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     except Exception as exc:
-        logger.warning("Groq request failed: %s", exc)
+        logger.error(f"Groq request failed: {exc}")
         return None
 
     content = _strip_markdown_fence(content)
