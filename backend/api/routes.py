@@ -42,7 +42,9 @@ async def start(req: Request, data: StartRequest, db: AsyncSession = Depends(get
     debate_service: DebateService = req.app.state.debate_service
     facts_provider = req.app.state.facts_provider
 
-    result = await debate_service.run_debate(topic, data.max_rounds, facts_provider, data.persona, data.user_side, db)
+    # Only initialize DB record + generate claims - do NOT run the full simulation.
+    # The frontend drives each turn individually via GET /debate/{id}/stream_turn.
+    result = await debate_service.initialize_debate(topic, data.max_rounds, facts_provider, data.persona, data.user_side, db)
 
     return {
         "debate_id": str(result.state.id) if hasattr(result.state, 'id') else None,

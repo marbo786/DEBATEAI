@@ -93,6 +93,59 @@ class DebateService:
         state.turning_point_round = self._turning_point(state)
         return state
 
+    async def initialize_debate(
+        self,
+        topic: str,
+        rounds: int,
+        facts_provider: FactsProvider | None = None,
+        persona: Persona | str = Persona.DEFAULT,
+        user_side: str = "auto",
+        db: AsyncSession = None,
+    ) -> DebateResult:
+        self.belief_model = BeliefModel.create_from_persona(persona)
+        max_rounds = min(6, max(4, rounds))
+        api_facts = await facts_provider(topic) if facts_provider else None
+        facts_from_api = bool(api_facts)
+
+        if api_facts is not None:
+            pro_claims, con_claims = api_facts
+        else:
+            pro_claims, con_claims = self.arg_gen.generate_initial_claims(topic)
+
+        state = DebateState(
+            topic=topic,
+            user_side=user_side,
+            pro_claims=pro_claims,
+            con_claims=con_claims,
+            history=[],
+            belief=self.belief_model.prior,
+            belief_history=[self.belief_model.prior],
+            round_number=0,
+            max_rounds=max_rounds,
+        )
+
+        db_debate = None
+        if db:
+            db_debate = DebateRecord(
+                topic=topic,
+                persona=persona.value if isinstance(persona, Persona) else persona,
+                user_side=user_side,
+                pro_claims=pro_claims,
+                con_claims=con_claims,
+                max_rounds=max_rounds,
+                belief=self.belief_model.prior
+            )
+            db.add(db_debate)
+            await db.commit()
+            await db.refresh(db_debate)
+            state.id = str(db_debate.id)
+
+        return DebateResult(
+            state=state,
+            pruning_logs=[],
+            facts_from_api=facts_from_api,
+        )
+
     async def run_debate(
         self,
         topic: str,

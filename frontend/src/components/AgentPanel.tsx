@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export interface AgentPanelProps {
   side: "pro" | "con";
@@ -12,93 +13,126 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
   const [expandReasoning, setExpandReasoning] = useState(false);
   const isPro = side === "pro";
 
+  const accentBorder = isPro ? "border-emerald-500/40" : "border-rose-500/40";
+  const accentGlow = isPro ? "shadow-emerald-900/30" : "shadow-rose-900/30";
+  const accentText = isPro ? "text-emerald-400" : "text-rose-400";
+  const accentBg = isPro ? "bg-emerald-900/20" : "bg-rose-900/20";
+  const dotColor = isPro ? "bg-emerald-400" : "bg-rose-400";
+  const strengthBar = isPro
+    ? "bg-gradient-to-r from-emerald-700 to-emerald-400"
+    : "bg-gradient-to-r from-rose-700 to-rose-400";
+
   if (!arg && !typingText) {
     return (
       <div
-        className={`rounded-xl border-2 ${isActive ? (isPro ? "border-teal-500/50 pulse" : "border-amber-500/50 pulse") : "border-slate-600"
-          } bg-slate-800/40 p-5 min-h-[200px] flex flex-col justify-center items-center text-slate-500 transition`}
+        className={`rounded-2xl border ${isActive ? accentBorder : "border-slate-700/50"} bg-white/[0.03] backdrop-blur-sm p-5 min-h-[180px] flex flex-col justify-center items-center text-slate-500 transition-all duration-300 shadow-lg ${isActive ? accentGlow : ""}`}
       >
-        <div className="flex items-center gap-2">
-          {isActive ? (
-            <div className="flex gap-1 items-center h-4">
-              <span className={`h-2 w-2 rounded-full ${isPro ? "bg-teal-500" : "bg-amber-500"} animate-bounce`} style={{ animationDelay: '0ms' }}></span>
-              <span className={`h-2 w-2 rounded-full ${isPro ? "bg-teal-500" : "bg-amber-500"} animate-bounce`} style={{ animationDelay: '150ms' }}></span>
-              <span className={`h-2 w-2 rounded-full ${isPro ? "bg-teal-500" : "bg-amber-500"} animate-bounce`} style={{ animationDelay: '300ms' }}></span>
+        {isActive ? (
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex gap-1.5 items-center h-5">
+              {[0, 150, 300].map((delay) => (
+                <span
+                  key={delay}
+                  className={`h-2 w-2 rounded-full ${dotColor} animate-bounce`}
+                  style={{ animationDelay: `${delay}ms` }}
+                />
+              ))}
             </div>
-          ) : (
-            <span className="text-sm">Waiting for turn…</span>
-          )}
-        </div>
+            <span className={`text-xs font-medium ${accentText}`}>Thinking…</span>
+          </div>
+        ) : (
+          <span className="text-sm text-slate-600">Awaiting turn</span>
+        )}
       </div>
     );
   }
 
-  const borderClass = isActive
-    ? isPro
-      ? "border-teal-500 bg-slate-800/60"
-      : "border-amber-500 bg-slate-800/60"
-    : "border-slate-600 bg-slate-800/40";
-
   return (
-    <div className={`rounded-xl border-2 ${borderClass} p-5 transition`}>
-      <div className="flex items-center gap-2 mb-3">
-        <span
-          className={`text-xs font-semibold uppercase tracking-wider ${isPro ? "text-teal-400" : "text-amber-400"
-            }`}
-        >
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className={`rounded-2xl border ${accentBorder} ${accentBg} backdrop-blur-sm p-5 shadow-lg ${accentGlow}`}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest ${accentText}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
           {isPro ? "Pro" : "Con"}
         </span>
         {roundLabel && (
-          <span className="text-slate-500 text-xs">{roundLabel}</span>
+          <span className="text-slate-600 text-xs">{roundLabel}</span>
         )}
       </div>
 
+      {/* Claim / Typing text */}
       {typingText != null ? (
-        <p className="text-slate-100 font-medium mb-3 min-h-[100px] typing-cursor">
+        <p className={`text-slate-100 font-semibold text-base leading-relaxed min-h-[80px] typing-cursor`}>
           {typingText}
         </p>
       ) : (
         <>
-          <p className="text-slate-100 font-medium mb-3">{arg.claim}</p>
-          <div className="space-y-1 text-sm text-slate-400">
-            {arg.premises?.map((p: string, i: number) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-slate-500">•</span>
-                <span>{p}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <span className="text-xs text-slate-500">Strength</span>
-            <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
-              <div
-                className={`h-full rounded-full ${isPro ? "bg-teal-500" : "bg-amber-500"
-                  }`}
-                style={{ width: `${(arg.strength ?? 0) * 100}%` }}
+          <p className="text-slate-100 font-semibold text-base leading-relaxed mb-4">{arg.claim}</p>
+
+          {/* Premises */}
+          {arg.premises?.length > 0 && (
+            <ul className="space-y-1.5 mb-4">
+              {arg.premises.map((p: string, i: number) => (
+                <li key={i} className="flex gap-2 text-sm text-slate-400">
+                  <span className={`mt-0.5 flex-shrink-0 w-1.5 h-1.5 rounded-full ${dotColor} opacity-70 mt-1.5`} />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Strength bar */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs text-slate-500 w-14">Strength</span>
+            <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <motion.div
+                className={`h-full rounded-full ${strengthBar}`}
+                initial={{ width: 0 }}
+                animate={{ width: `${(arg.strength ?? 0) * 100}%` }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
               />
             </div>
-            <span className="text-xs text-slate-400 w-8">
+            <span className="text-xs text-slate-400 tabular-nums w-8 text-right">
               {Math.round((arg.strength ?? 0) * 100)}%
             </span>
           </div>
+
+          {/* Reasoning toggle */}
           <button
             type="button"
             onClick={() => setExpandReasoning((e) => !e)}
-            className="mt-3 text-xs text-slate-500 hover:text-slate-300 transition"
+            className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
           >
+            <span className={`transition-transform ${expandReasoning ? "rotate-90" : ""}`}>▶</span>
             {expandReasoning ? "Hide" : "Show"} reasoning chain
           </button>
-          {expandReasoning && (
-            <div className="mt-2 pt-2 border-t border-slate-600 text-xs text-slate-400">
-              <p className="font-medium text-slate-500 mb-1">Inference</p>
-              <p>{arg.inference}</p>
-              {arg.reasoning_type && (
-                <p className="mt-1 text-slate-500">Type: {arg.reasoning_type}</p>
-              )}
-            </div>
-          )}
+
+          <AnimatePresence>
+            {expandReasoning && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 pt-3 border-t border-slate-700/50 text-xs text-slate-400 space-y-1">
+                  <p className="font-medium text-slate-500">Inference</p>
+                  <p>{arg.inference}</p>
+                  {arg.reasoning_type && (
+                    <p className="text-slate-500">Type: <span className="text-slate-400">{arg.reasoning_type}</span></p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
-    </div>
+    </motion.div>
   );
 }

@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import AgentPanel from "./AgentPanel";
 import BeliefMeter from "./BeliefMeter";
 
@@ -15,6 +16,7 @@ export interface DebateState {
   belief: number;
   winner?: "pro" | "con" | "tie" | null;
   history?: DebateHistoryItem[];
+  user_side?: string;
 }
 
 export interface DebateViewProps {
@@ -22,9 +24,10 @@ export interface DebateViewProps {
   history: DebateHistoryItem[] | null | undefined;
   factsFromApi: boolean;
   activeTyping?: { side: "pro" | "con"; text: string } | null;
+  isStreaming?: boolean;
 }
 
-/** Group history by debate round: round 1 = [Pro, Con], round 2 = [Pro, Con], ... */
+/** Pair Pro and Con into rounds */
 function getRoundPairs(history: DebateHistoryItem[] | null | undefined) {
   const h = history ?? [];
   const pairs: Array<{
@@ -32,140 +35,181 @@ function getRoundPairs(history: DebateHistoryItem[] | null | undefined) {
     pro: DebateHistoryItem | null;
     con: DebateHistoryItem | null;
   }> = [];
-  for (let r = 0; r < h.length; r += 2) {
+  for (let i = 0; i < h.length; i += 2) {
+    const a = h[i];
+    const b = h[i + 1];
     pairs.push({
       roundNum: pairs.length + 1,
-      pro: h[r]?.side === "pro" ? h[r] : null,
-      con: h[r + 1]?.side === "con" ? h[r + 1] : null,
+      pro: a?.side === "pro" ? a : b?.side === "pro" ? b : null,
+      con: a?.side === "con" ? a : b?.side === "con" ? b : null,
     });
   }
+  // Add a "live" round when typing is happening but turn isn't committed yet
   return pairs;
 }
 
-export default function DebateView({ state, history, factsFromApi, activeTyping }: DebateViewProps) {
+const containerVariants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.12 },
+  },
+};
+
+const roundVariants = {
+  hidden: { opacity: 0, y: 24 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: "easeOut" },
+  },
+};
+
+export default function DebateView({ state, history, factsFromApi, activeTyping, isStreaming }: DebateViewProps) {
   const maxRounds = state?.max_rounds ?? 6;
   const roundPairs = useMemo(() => getRoundPairs(history), [history]);
-  const [selectedRound, setSelectedRound] = useState<number | null>(null);
-
-  // If streaming and activeTyping exists, automatically switch to the latest round
-  const currentHistoryRound = Math.max(1, Math.ceil(((history?.length || 0) + 1) / 2));
-  const displayRoundNum = selectedRound ?? currentHistoryRound;
-
-  // Auto-follow live round unless user deliberately changed it
-  if (activeTyping && selectedRound !== currentHistoryRound) {
-    setSelectedRound(currentHistoryRound);
-  }
-
   const belief = state?.belief ?? 0.5;
   const displayRound = state?.round ?? 0;
 
-  const pair = roundPairs.find((p) => p.roundNum === displayRoundNum) ?? { roundNum: displayRoundNum, pro: null, con: null };
-  const proForRound = pair.pro ?? null;
-  const conForRound = pair.con ?? null;
-
-  const proTyping = activeTyping?.side === "pro" && displayRoundNum === currentHistoryRound ? activeTyping.text : null;
-  const conTyping = activeTyping?.side === "con" && displayRoundNum === currentHistoryRound ? activeTyping.text : null;
+  // Current live round: 1-indexed, one ahead if actively typing
+  const liveRoundNum = activeTyping ? roundPairs.length + 1 : roundPairs.length;
+  const proTyping = activeTyping?.side === "pro" ? activeTyping.text : null;
+  const conTyping = activeTyping?.side === "con" ? activeTyping.text : null;
 
   return (
-    <div className="mt-10 space-y-8">
-      {/* Topic and round selector */}
-      {state?.topic && (
-        <div className="rounded-xl border border-slate-600 bg-slate-800/50 px-4 py-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-slate-400 text-sm font-medium">Debate topic</p>
-            {factsFromApi && (
-              <span className="rounded-md bg-teal-900/60 text-teal-300 text-xs font-medium px-2 py-0.5 border border-teal-700/50">
-                Using API facts
-              </span>
+    <div className="mt-10 flex flex-col gap-8">
+      {/* Topic header */}
+      <AnimatePresence>
+        {state?.topic && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative rounded-2xl border border-slate-700/50 bg-white/[0.02] backdrop-blur-sm px-6 py-4 overflow-hidden"
+          >
+            {/* Accent line */}
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-500/50 to-transparent" />
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <p className="text-xs font-bold tracking-widest text-slate-500 uppercase mb-1">Debate Topic</p>
+                <p className="text-slate-100 text-lg font-semibold leading-snug">{state.topic}</p>
+              </div>
+              {factsFromApi && (
+                <span className="flex-shrink-0 mt-1 rounded-full bg-emerald-900/50 text-emerald-300 text-xs font-medium px-3 py-1 border border-emerald-700/40">
+                  Live facts ✦
+                </span>
+              )}
+            </div>
+            {state.user_side && state.user_side !== "auto" && (
+              <p className="mt-2 text-xs text-slate-500">
+                You are playing as: <span className={state.user_side === "pro" ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>{state.user_side === "pro" ? "Pro ✦" : "Con ✦"}</span>
+              </p>
             )}
-          </div>
-          <p className="text-slate-100 text-lg font-semibold">{state.topic}</p>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Round selector: "Round 1" … "Round 6" */}
-      {roundPairs.length > 0 && (
-        <div className="rounded-xl border border-slate-600 bg-slate-800/50 p-4">
-          <p className="text-slate-300 font-medium mb-3">View round</p>
-          <div className="flex flex-wrap gap-2">
-            {roundPairs.map(({ roundNum }) => (
-              <button
-                key={roundNum}
-                type="button"
-                onClick={() => setSelectedRound(roundNum)}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${selectedRound === roundNum
-                    ? "bg-teal-600 text-white ring-2 ring-teal-400"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  }`}
-              >
-                Round {roundNum}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main debate: Pro | Meter | Con for selected round */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-        <div className="order-2 md:order-1">
-          <AgentPanel
-            side="pro"
-            argument={proForRound?.argument ?? null}
-            roundLabel={`Round ${displayRoundNum} — Pro`}
-            isActive={!!proForRound || !!proTyping}
-            typingText={proTyping}
-          />
-        </div>
-        <div className="order-1 md:order-2 flex flex-col gap-4">
+      {/* Belief Meter (persistent) */}
+      {state && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="rounded-2xl border border-slate-700/40 bg-white/[0.025] backdrop-blur-sm px-6 py-5 shadow-xl"
+        >
           <BeliefMeter belief={belief} round={displayRound} maxRounds={maxRounds} />
-          {state?.winner != null && !activeTyping && (
-            <div className="text-center">
-              <span className="text-slate-400 text-sm">Winner: </span>
-              <span
-                className={
-                  state.winner === "pro"
-                    ? "text-teal-400 font-semibold"
-                    : state.winner === "tie"
-                      ? "text-slate-300 font-semibold"
-                      : "text-amber-400 font-semibold"
-                }
-              >
-                {state.winner === "pro" ? "Pro" : state.winner === "tie" ? "Tie" : "Con"}
+        </motion.div>
+      )}
+
+      {/* Rounds — stagger them in as they arrive */}
+      <motion.div
+        className="flex flex-col gap-6"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+      >
+        {roundPairs.map(({ roundNum, pro, con }) => (
+          <motion.section
+            key={roundNum}
+            variants={roundVariants}
+            className="rounded-2xl border border-slate-700/30 bg-white/[0.015] backdrop-blur-sm overflow-hidden"
+          >
+            {/* Round header */}
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-700/30 bg-white/[0.015]">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
+                {roundNum}
+              </span>
+              <span className="text-sm font-semibold text-slate-300">Round {roundNum}</span>
+              {roundNum === roundPairs.length && isStreaming && (
+                <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+              <AgentPanel
+                side="pro"
+                argument={pro?.argument ?? null}
+                isActive={false}
+              />
+              <AgentPanel
+                side="con"
+                argument={con?.argument ?? null}
+                isActive={false}
+              />
+            </div>
+          </motion.section>
+        ))}
+
+        {/* Live typing round (not yet committed) */}
+        {activeTyping && (
+          <motion.section
+            key="live"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-slate-600/50 bg-white/[0.02] backdrop-blur-sm overflow-hidden"
+          >
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-700/30 bg-white/[0.02]">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
+                {liveRoundNum}
+              </span>
+              <span className="text-sm font-semibold text-slate-300">Round {liveRoundNum}</span>
+              <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live
               </span>
             </div>
-          )}
-        </div>
-        <div className="order-3">
-          <AgentPanel
-            side="con"
-            argument={conForRound?.argument ?? null}
-            roundLabel={`Round ${displayRoundNum} — Con`}
-            isActive={!!conForRound || !!conTyping}
-            typingText={conTyping}
-          />
-        </div>
-      </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+              <AgentPanel
+                side="pro"
+                argument={null}
+                isActive={!!proTyping}
+                typingText={proTyping}
+              />
+              <AgentPanel
+                side="con"
+                argument={null}
+                isActive={!!conTyping}
+                typingText={conTyping}
+              />
+            </div>
+          </motion.section>
+        )}
+      </motion.div>
 
-      {/* All moves list (optional detail) */}
-      {(history?.length ?? 0) > 0 && (
-        <details className="rounded-lg border border-slate-600 bg-slate-800/40 p-4">
-          <summary className="text-slate-400 text-sm font-medium cursor-pointer hover:text-slate-300">
-            All moves (Pro #1, Con #2, …)
-          </summary>
-          <div className="flex flex-wrap gap-2 mt-3">
-            {history!.map((r, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setSelectedRound(Math.floor(i / 2) + 1)}
-                className={`rounded-md px-3 py-1.5 text-sm transition ${r.side === "pro" ? "bg-teal-800/80 text-teal-200" : "bg-amber-900/50 text-amber-200"
-                  } hover:opacity-90`}
-              >
-                {r.side === "pro" ? "Pro" : "Con"} #{i + 1}
-              </button>
+      {/* Debate hasn't started yet */}
+      {roundPairs.length === 0 && !activeTyping && state && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center text-slate-500 py-10 text-sm"
+        >
+          <div className="flex justify-center gap-1.5 mb-3">
+            {[0, 150, 300].map((d) => (
+              <span key={d} className="w-2 h-2 rounded-full bg-slate-600 animate-bounce" style={{ animationDelay: `${d}ms` }} />
             ))}
           </div>
-        </details>
+          Waiting for first argument…
+        </motion.div>
       )}
     </div>
   );

@@ -3,34 +3,67 @@
 @tailwind utilities;
 
 :root {
-  --pro-color: #0d9488;
-  --con-color: #c2410c;
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
+  --pro-color: #34d399;
+  --con-color: #fb7185;
+  --bg: #080d18;
+  --surface: #0f172a;
+  --border: rgba(255, 255, 255, 0.06);
 }
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 body {
-  @apply font-body text-slate-200 antialiased;
+  font-family: 'Inter', system-ui, sans-serif;
   background: var(--bg);
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Smooth belief bar transition */
-.belief-fill {
-  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
+/* Typing cursor animation */
 .typing-cursor::after {
   content: '▋';
   display: inline-block;
   vertical-align: bottom;
   animation: blink 1s step-end infinite;
   margin-left: 2px;
-  color: #94a3b8;
+  color: #34d399;
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Glass card base */
+.glass-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
