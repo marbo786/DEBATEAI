@@ -1,163 +1,178 @@
-# DebateAI: Architecture & Integration Plan
+# DebateAI — Architecture Reference
 
-## 1. Overall Architecture
+## Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND (React + Tailwind)                    │
-│  Topic Input │ Pro Panel │ Belief Meter │ Con Panel │ Summary    │
-└─────────────────────────────────────────────────────────────────────────┘
-                                      │
-                              HTTP (fetch / REST)
-                                      │
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           BACKEND (Python / FastAPI)                     │
-│  /api/start  │  /api/state  │  /api/summary                              │
-└─────────────────────────────────────────────────────────────────────────┘
-                                      │
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           CORE ENGINE                                    │
-│  DebateState │ ArgumentGenerator │ MinimaxAgent │ BeliefModel │ Summary  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+DebateAI is organized as a **monorepo** with two independently deployable projects:
 
-- **Single request flow**: Frontend calls `POST /api/start` with topic → backend generates claims, runs 4–6 rounds (or step-by-step), returns full debate state + history. Alternative: `GET /api/next_round` for round-by-round.
-- **State**: Backend holds one active debate (topic, rounds, belief history). No DB; in-memory for simplicity.
+- `backend/` — FastAPI Python application (Vercel Serverless Function)
+- `frontend/` — React + Vite TypeScript SPA (Vercel Static)
+
+They communicate exclusively over HTTP via a typed REST+SSE API.
 
 ---
 
-## 2. Project Folder Structure
+## System Architecture
 
 ```
-DEBATEAI/
-├── ARCHITECTURE.md          # This file
-├── README.md
-├── backend/
-│   ├── run.py
-│   ├── app.py               # FastAPI app, routes
-│   ├── api/
-│   │   ├── routes.py        # APIRouter endpoints
-│   ├── domain/
-│   │   ├── __init__.py
-│   │   ├── state.py         # DebateState, Argument dataclass
-│   │   ├── belief.py        # Audience belief update
-│   │   ├── minimax.py       # Minimax + alpha-beta, eval, pruning log
-│   │   └── reasoning.py     # Logical reasoning templates
-│   ├── infra/
-│   │   ├── groq_client.py   # Groq API for pro/con facts (async)
-│   ├── services/
-│   │   └── debate_service.py # Debate orchestration (async)
-├── frontend/
-│   ├── package.json
-│   ├── tailwind.config.js
-│   ├── index.html
-│   ├── src/
-│   │   ├── main.jsx
-│   │   ├── App.jsx
-│   │   ├── api.js           # fetch wrappers
-│   │   ├── components/
-│   │   │   ├── TopicInput.jsx
-│   │   │   ├── AgentPanel.jsx
-│   │   │   ├── BeliefMeter.jsx
-│   │   │   ├── DebateView.jsx
-│   │   │   └── SummaryCard.jsx
-│   │   └── index.css
-│   └── vite.config.js
-└── docs/                    # Optional: pruning log explanation
+┌──────────────────────────────────────────────────────────┐
+│                        Browser (User)                      │
+│                                                            │
+│   TopicInput → App.tsx (State Machine) → DebateView       │
+│                         ↕                                  │
+│              SSE stream + REST fetch                       │
+└────────────────────────────┬─────────────────────────────┘
+                             │ HTTPS
+                             ▼
+┌──────────────────────────────────────────────────────────┐
+│               Backend (Vercel Python Serverless)           │
+│                                                            │
+│   api/index.py (FastAPI app factory)                       │
+│       └── api/routes.py (APIRouter /api/*)                 │
+│                │                                           │
+│       services/debate_service.py                           │
+│                │                                           │
+│       ┌────────┴────────┐                                  │
+│       ▼                 ▼                                  │
+│   domain/           infra/                                 │
+│   minimax.py        database.py  (asyncpg + NullPool)      │
+│   belief.py         models.py   (SQLAlchemy ORM)           │
+│   reasoning.py      groq_client.py                         │
+│   state.py                                                 │
+│                         │                                  │
+└─────────────────────────┼──────────────────────────────── ┘
+                          │ async SQL (asyncpg)
+                          ▼
+               ┌─────────────────────┐
+               │  PostgreSQL (Neon)   │
+               │  tables: debates,    │
+               │          rounds      │
+               └─────────────────────┘
 ```
 
 ---
 
-## 3. Backend Module Responsibilities
+## Backend Layer Breakdown
 
-| Module      | Responsibility |
-|------------|-----------------|
-| `domain/state.py` | `Argument` (claim, premises, attack_target, strength), `DebateState` (topic, pro/con claims, history, belief, round). |
-| `domain/reasoning.py` | Template-based argument generation: causal, tradeoff, ethical, risk. Input: side, topic, existing claims → structured argument (premises, inference, claim). |
-| `domain/minimax.py` | Minimax with alpha-beta (depth 2–3). State = debate state; actions = choose argument (or pass). Eval = f(strength, counter_strength, belief_impact). Log pruned branches. |
-| `domain/belief.py` | `update_belief(current_belief, pro_strength, con_strength)` → new belief in [0,1]. Simple weighted or Bayesian-style update. |
-| `services/debate_service.py` | `DebateService`: init from topic (or optional API-provided claims), run rounds (minimax selects move, opponent counters, belief update), produce history + summary. |
-| `infra/groq_client.py` | Optional: call Groq API to get pro/con facts for topic; used by app when `GROQ_API_KEY` is set. Asynchronous HTTP using httpx. |
-| `api/routes.py` | Routes: `POST /api/start` (body: `{ topic }`), `GET /api/state`, `POST /api/summary`. Return JSON: state, summary, pruning_logs, facts_from_api. |
+### `api/`
+- **`index.py`** — Vercel serverless entrypoint. Creates the FastAPI application, registers CORS middleware, attaches the global exception handler, mounts the router, and instantiates app-level singletons (`DebateService`, `get_facts_from_groq`).
+- **`routes.py`** — Defines all HTTP endpoints under the `/api` prefix.
+
+### `services/`
+- **`debate_service.py`** — The main orchestration layer. Key methods:
+  - `initialize_debate(...)` — Creates a DB record and generates seed claims. Called by `POST /api/start`. Does **not** run any debate rounds.
+  - `run_turn_stream(...)` — Streams a single AI turn via SSE. Runs one minimax step, streams word-by-word typing events, commits the result to the database.
+  - `get_debate_state(...)` — Fetches and reconstructs a `DebateState` from the database.
+  - `summarize(...)` — Derives the final summary dict from a `DebateState`.
+
+### `domain/`
+Pure logic with **no I/O dependencies**. Easily unit-tested.
+
+| File | Responsibility |
+|---|---|
+| `state.py` | Data classes: `DebateState`, `Argument`, `RoundRecord`, `Side`, `Persona` |
+| `belief.py` | `BeliefModel` — Bayesian belief update from argument strengths |
+| `minimax.py` | `MinimaxAgent` — alpha-beta pruned minimax search over argument candidates |
+| `reasoning.py` | `ArgumentGenerator` — generates and ranks argument candidates; parses user text |
+
+### `infra/`
+Side-effect bearing code (database, HTTP).
+
+| File | Responsibility |
+|---|---|
+| `database.py` | Creates the SQLAlchemy async engine. Strips `?sslmode=` params from DSN for asyncpg compatibility. Uses `NullPool` for Vercel serverless (no persistent connections). |
+| `models.py` | `DebateRecord` and `RoundRecordModel` ORM models |
+| `groq_client.py` | Calls Groq LLM API to seed a debate with real-world pro/con claims |
 
 ---
 
-## 4. Data Contracts (JSON)
+## Frontend Layer Breakdown
 
-**Argument (to frontend):**
-```json
-{
-  "claim": "string",
-  "premises": ["string"],
-  "inference": "string",
-  "attack_target": null | index,
-  "strength": 0.0–1.0,
-  "reasoning_type": "causal|tradeoff|ethical|risk"
-}
+### `App.tsx` — State Machine
+Central controller managing the entire debate lifecycle:
+
+```
+idle → starting → streaming (turn_loop) → waiting_for_user → streaming → ... → done
 ```
 
-**Debate state (per round):**
-```json
-{
-  "topic": "string",
-  "round": 0–6,
-  "belief": 0.0–1.0,
-  "pro_claims": ["string"],
-  "con_claims": ["string"],
-  "history": [
-    { "side": "pro"|"con", "argument": { ... }, "belief_after": 0.52 },
-    ...
-  ],
-  "winner": null | "pro" | "con",
-  "turning_point_round": 1-based index or null
-}
-```
+Key design decisions:
+- `isTurnInFlightRef` prevents double-triggering the `stream_turn` SSE connection.
+- After `turn_complete`, a 1.2-second delay is enforced so users can read each argument before the next fires.
+- `isDone` state is decoupled from `streamingState` so the `SummaryCard` only appears after a clean `done` event.
 
-**Summary:**
-```json
-{
-  "topic": "string",
-  "winner": "pro"|"con",
-  "final_belief": 0.0–1.0,
-  "final_pro_pct": number,
-  "final_con_pct": number,
-  "turning_point_round": int,
-  "total_rounds": int
-}
-```
+### `api.ts` — Typed HTTP Client
+- `startDebate()` — `POST /api/start`
+- `streamDebateTurn()` — Opens `EventSource` to `GET /api/debate/{id}/stream_turn`
+- `submitDebateMove()` — `POST /api/debate/{id}/move`
+- `getSummary()` — `GET|POST /api/summary/{id}`
+- Falls back through `VITE_API_BASE_URL → /api` with graceful `TypeError` logging.
+
+### Components
+
+| Component | Role |
+|---|---|
+| `TopicInput.tsx` | Debate setup: topic text input, audience persona tiles, play mode tiles, start button |
+| `DebateView.tsx` | Renders completed rounds as stagger-animated cards + live typing round |
+| `AgentPanel.tsx` | Per-side argument card with typing cursor, animated strength bar, collapsible reasoning |
+| `BeliefMeter.tsx` | Spring-animated dual-fill bar with Pro/Con leading indicator |
+| `SummaryCard.tsx` | Final result card with stat tiles, audience override, and PNG download |
 
 ---
 
-## 5. Frontend → Backend Connection
+## Database Schema
 
-1. **Start debate**: `POST /api/start` with `{ "topic": "..." }`. Backend runs full debate (4–6 rounds), returns `{ state, history, summary }`.
-2. **Display**: Frontend stores `state` and `history`; renders round-by-round from `history`; belief meter shows current `belief`.
-3. **Summary**: When `state.winner` is set, show `SummaryCard` with topic, winner, final result bar (Pro % / Con %), turning point round. "Download as Image" uses html2canvas on the card div.
-4. **Override audience**: User picks "Pro" / "Con" / "Neutral" → frontend can recompute display percentage (e.g. 1, 0, 0.5) and show "If audience were X, result would be Y" without calling backend (or optional lightweight endpoint that returns adjusted summary).
+### `debates`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | Auto-generated |
+| `topic` | String | Debate topic text |
+| `persona` | String | Audience persona name |
+| `user_side` | String | `'auto'`, `'pro'`, or `'con'` |
+| `max_rounds` | Integer | Capped at 4–6 |
+| `status` | String | `'running'`, `'completed'` |
+| `belief` | Float | Current belief value (0–1) |
+| `pro_claims` | JSONB | Seed pro claims list |
+| `con_claims` | JSONB | Seed con claims list |
+| `winner` | String | `'pro'`, `'con'`, or `'tie'` |
+| `created_at` | Timestamp | |
+
+### `rounds`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `debate_id` | UUID FK | References `debates.id` |
+| `round_number` | Integer | 1-indexed |
+| `side` | String | `'pro'` or `'con'` |
+| `claim` | Text | Main argument claim |
+| `premises` | JSONB | Supporting premises list |
+| `inference` | Text | Logical inference chain |
+| `strength` | Float | Argument strength (0–1) |
+| `reasoning_type` | String | e.g. `'deductive'` |
+| `belief_after` | Float | Belief after this round |
+| `is_user_move` | Boolean | True if submitted by human player |
 
 ---
 
-## 6. Implementation Order
+## API Endpoints
 
-1. Backend: Domain (`state.py` → `reasoning.py` → `belief.py` → `minimax.py`) → Services (`debate_service.py`) → API (`routes.py`).
-2. Frontend: `api.ts` → `TopicInput` + `DebateView` (skeleton) → `AgentPanel` + `BeliefMeter` → `SummaryCard` + download + override.
-3. Integration: CORS, run FastAPI + Vite, test one full debate and screenshot flow.
-
----
-
-## 7. Minimax & Alpha-Beta (Summary)
-
-- **Players**: Pro (maximizer), Con (minimizer). Alternating moves.
-- **State**: Current debate state (round, belief, last arguments).
-- **Actions**: Pick one of available arguments (from reasoning layer) or pass.
-- **Eval(s)**: Score = w1·(belief_impact) + w2·(argument_strength) − w3·(opponent_counter_strength). Pro maximizes, Con minimizes.
-- **Depth**: 2–3 plies. Log each pruned branch (action + beta cut / alpha cut) for demo.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Health check |
+| `POST` | `/api/start` | Initialize debate, return empty state + debate_id |
+| `GET` | `/api/debate/{id}/stream_turn` | SSE stream for one AI turn |
+| `POST` | `/api/debate/{id}/move` | Submit a human player argument |
+| `GET` | `/api/state/{id}` | Fetch full current debate state |
+| `GET/POST` | `/api/summary/{id}` | Get summary, optionally with audience override |
 
 ---
 
-## 8. Belief Update (Summary)
+## SSE Event Protocol
 
-- Start: `belief = 0.5`.
-- Each round: `delta = k * (pro_strength - con_strength)`, `belief = clamp(belief + delta, 0, 1)`. Or Bayesian-style: treat strength as evidence, update posterior. Keep formula simple and documented.
+The `stream_turn` endpoint emits the following `data:` events:
 
-Facts for debates can come from the optional Groq API (when `GROQ_API_KEY` is set) or from generic templates. The architecture keeps the system clean, modular, and implementable (structured reasoning, explainable).
+| Event type | Payload | Meaning |
+|---|---|---|
+| `typing` | `{side, chunk}` | One word of the argument being typed |
+| `move` | `{state}` | AI argument committed, full state snapshot |
+| `turn_complete` | `{state}` | Turn done, AI is not the next player |
+| `waiting_for_user` | `{state}` | It's the human player's turn |
+| `done` | `{state, summary}` | Debate finished, final results |

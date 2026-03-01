@@ -1,212 +1,149 @@
-# DebateAI
+# ⚔️ DebateAI
 
-DebateAI is a full-stack AI debate simulator where two autonomous agents (Pro and Con) argue a user-provided topic.
-
-The project demonstrates core AI concepts in an explainable way:
-- **adversarial search** (minimax + alpha-beta pruning),
-- **structured argument generation** (claim + premises + inference),
-- **probabilistic belief updates** for audience stance,
-- optional **external factual grounding** through the Groq API.
+An intelligent debate simulation platform where AI agents argue opposing sides of any topic using **adversarial search**, **minimax reasoning**, and **probabilistic belief modelling**. Features a real-time streaming UI, Man vs. Machine interactive mode, and persistent PostgreSQL storage.
 
 ---
 
-## Table of Contents
+## ✨ Features
 
-- [What this project does](#what-this-project-does)
-- [Tech stack](#tech-stack)
-- [Project structure](#project-structure)
-- [Quick start](#quick-start)
-- [Configuration](#configuration)
-- [API reference](#api-reference)
-- [How the debate engine works](#how-the-debate-engine-works)
-- [Frontend behavior](#frontend-behavior)
-- [Development workflow](#development-workflow)
-- [Troubleshooting](#troubleshooting)
-- [Additional docs](#additional-docs)
+- **AI vs. AI Debates** — Watch two minimax agents argue any topic to completion
+- **Man vs. Machine Mode** — Play as Pro or Con and debate against the AI in real-time
+- **Probabilistic Belief Meter** — Live spring-animated belief graph showing who's winning each round
+- **Streaming SSE** — Typing animations stream each argument word-by-word, round-by-round
+- **Multiple Audience Personas** — Skeptic, Credulous, Balanced, or Pro-leaning audiences that change how arguments land
+- **Persistent Storage** — All debates saved to PostgreSQL via SQLAlchemy + asyncpg
+- **Live API Facts** — Optional Groq LLM integration to pull real-world facts for argument seeding
+- **Summary & Download** — Full debate summary card with audience override and PNG export
 
 ---
 
-## What this project does
+## 🗂️ Project Structure
 
-1. Accepts a debate topic from the UI.
-2. Optionally fetches pro/con factual claims from Groq (if `GROQ_API_KEY` is set).
-3. Runs a complete debate in the backend for 4 to 6 rounds.
-4. Produces a structured history of arguments and belief changes.
-5. Returns a summary (winner, percentages, turning point).
-6. Lets users override audience stance in the UI and export a summary card image.
-
----
-
-## Tech stack
-
-### Backend
-- Python 3.10+
-- Flask + Flask-CORS
-- `httpx` for optional Groq API calls
-
-### Frontend
-- React (Vite)
-- Tailwind CSS
-- `html2canvas` for summary image export
-
----
-
-## Project structure
-
-```text
+```
 DEBATEAI/
-├── backend/
-│   ├── app.py                 # Flask routes and request handling
-│   ├── run.py                 # server entrypoint
+├── backend/               # FastAPI Python backend
+│   ├── api/
+│   │   ├── index.py       # Vercel serverless entrypoint / FastAPI app factory
+│   │   └── routes.py      # All API route handlers
+│   ├── domain/            # Pure business logic (no I/O)
+│   │   ├── belief.py      # BeliefModel — Bayesian argument scoring
+│   │   ├── minimax.py     # MinimaxAgent — adversarial argument search
+│   │   ├── reasoning.py   # ArgumentGenerator — claim/argument generation
+│   │   └── state.py       # DebateState, Argument, Side, Persona datatypes
+│   ├── infra/             # Infrastructure (DB, external APIs)
+│   │   ├── database.py    # SQLAlchemy async engine + session factory
+│   │   ├── models.py      # ORM models: DebateRecord, RoundRecordModel
+│   │   └── groq_client.py # Groq LLM API client for fact seeding
+│   ├── services/
+│   │   └── debate_service.py # Orchestration: initialize, run, stream debates
+│   ├── alembic/           # Database migrations
+│   ├── tests/
+│   │   └── test_engine.py
 │   ├── requirements.txt
-│   └── engine/
-│       ├── state.py           # dataclasses and state serialization
-│       ├── reasoning.py       # argument generation logic
-│       ├── belief.py          # audience belief model
-│       ├── minimax.py         # minimax + alpha-beta pruning
-│       ├── debate.py          # orchestration of full debate runs
-│       └── facts_api.py       # optional Groq fact retrieval
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx
-│   │   ├── api.js             # backend API client wrappers
-│   │   └── components/
-│   └── package.json
-├── docs/
-│   ├── API.md
-│   ├── ENGINE.md
-│   ├── FRONTEND.md
-│   └── DEPLOYMENT.md
-├── ARCHITECTURE.md
-└── README.md
+│   └── vercel.json
+│
+└── frontend/              # React + TypeScript + Vite frontend
+    ├── src/
+    │   ├── components/
+    │   │   ├── AgentPanel.tsx    # Per-side argument card with typing animation
+    │   │   ├── BeliefMeter.tsx   # Animated spring-fill belief bar
+    │   │   ├── DebateView.tsx    # Progressive round-by-round debate layout
+    │   │   ├── SummaryCard.tsx   # Post-debate summary, override, download
+    │   │   └── TopicInput.tsx    # Topic entry and game mode configuration
+    │   ├── api.ts          # Typed API client (fetch + SSE)
+    │   ├── App.tsx         # Root state machine and layout
+    │   └── index.css       # Global styles and design tokens
+    └── vercel.json
 ```
 
 ---
 
-## Quick start
+## 🚀 Getting Started
 
-## 1) Backend
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+
+- PostgreSQL (local or [Neon.tech](https://neon.tech) cloud)
+
+### Backend
 
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate        # macOS/Linux
-# venv\Scripts\activate         # Windows PowerShell/CMD
+venv\Scripts\activate     # Windows
 pip install -r requirements.txt
-python run.py
+
+# Copy and fill your environment variables
+# Set DATABASE_URL and optionally GROQ_API_KEY
+
+# Run migrations
+alembic upgrade head
+
+# Start the dev server (from the project root)
+uvicorn backend.api.index:app --reload --port 5000
 ```
-Backend: `http://127.0.0.1:5000`
 
-Backend default URL: `http://127.0.0.1:5000`
-
-## 2) Frontend
+### Frontend
 
 ```bash
 cd frontend
 npm install
+
+# Set VITE_API_BASE_URL in .env.local if backend is on a different port/host
 npm run dev
 ```
-Frontend: `http://localhost:5173`
-
-Frontend default URL: `http://localhost:5173`
-
-Vite proxies `/api/*` to backend during development.
 
 ---
 
-## Configuration
+## 🌐 Deployment (Vercel)
 
-### Optional: Groq API integration
+This project is deployed as **two separate Vercel projects** from the same GitHub repository.
 
-Set `GROQ_API_KEY` before starting backend:
+### Backend Project
+- **Root Directory:** `backend`
+- **Environment Variables:**
+  - `DATABASE_URL` — PostgreSQL connection string (e.g. from Neon)
+  - `GROQ_API_KEY` — Optional, for live fact seeding
 
-```bash
-export GROQ_API_KEY="your-key-here"     # macOS/Linux
-# set GROQ_API_KEY=your-key-here         # Windows cmd
-# $env:GROQ_API_KEY="your-key-here"     # Windows PowerShell
-```
+### Frontend Project
+- **Root Directory:** `frontend`
+- **Framework Preset:** Vite
+- **Environment Variables:**
+  - `VITE_API_BASE_URL` — URL of your deployed backend (without trailing `/`)
 
-If unset or if API fails, DebateAI gracefully falls back to template claims.
-
-
-### Frontend backend URL (hosted deployments)
-
-If frontend and backend are on different domains, set:
-
-```bash
-# frontend/.env.production
-VITE_API_BASE_URL=https://<your-backend-host>
-```
-
-Then redeploy the frontend.
+> ⚠️ After adding `VITE_API_BASE_URL` to your frontend project, you **must redeploy** (not just save) since Vite bakes env vars into the bundle at build time.
 
 ---
 
-## API reference
+## 🔑 Environment Variables
 
-Detailed API documentation: **[`docs/API.md`](docs/API.md)**.
-
-Available endpoints:
-- `POST /api/start`
-- `GET /api/state`
-- `GET|POST /api/summary`
-
----
-
-## How the debate engine works
-
-Detailed engine docs: **[`docs/ENGINE.md`](docs/ENGINE.md)**.
-
-At a high level:
-- `ArgumentGenerator` creates candidate pro/con arguments.
-- `MinimaxAgent` chooses the strongest move for each side.
-- `BeliefModel` updates audience belief after each move.
-- `DebateRunner` executes alternating turns and computes winner + turning point.
+| Variable | Where | Description |
+|---|---|---|
+| `DATABASE_URL` | Backend | PostgreSQL DSN. `postgresql://...` is auto-converted to `asyncpg` format |
+| `GROQ_API_KEY` | Backend | Groq API key for LLM fact seeding (optional) |
+| `VITE_API_BASE_URL` | Frontend | Full base URL of your deployed backend |
 
 ---
 
-## Frontend behavior
+## 🤖 How It Works
 
-Detailed UI docs: **[`docs/FRONTEND.md`](docs/FRONTEND.md)**.
-
-The frontend:
-- starts debates,
-- visualizes round-by-round arguments,
-- displays belief and winner,
-- allows audience override,
-- exports summary card image.
+1. **Topic Input** — User enters a topic and selects audience persona + play mode
+2. **`POST /api/start`** — Backend initializes a debate record in PostgreSQL, generates seed claims (optionally via Groq), and returns the empty initial state + debate ID
+3. **`GET /api/debate/{id}/stream_turn`** — Frontend opens an SSE stream. The backend runs one minimax turn, streams word-by-word typing events, commits the result to the database, and signals `turn_complete` or `waiting_for_user`
+4. **Frontend State Machine** — After each `turn_complete`, the frontend waits 1.2 seconds then requests the next turn, creating a natural reading pace
+5. **`POST /api/debate/{id}/move`** — When playing as Pro or Con, the user submits their argument, which is parsed and committed to the database before the AI takes its next turn
+6. **`GET /api/summary/{id}`** — Returns the final winner, belief percentages, and turning point round
 
 ---
 
-## Development workflow
+## 💻 Tech Stack
 
-### Validate backend syntax
-```bash
-python -m compileall backend/app.py backend/engine
-```
-
-### Build frontend
-```bash
-cd frontend && npm run build
-```
-
----
-
-## Troubleshooting
-
-- **`topic is required` (400)**: Ensure non-empty topic in `/api/start` payload.
-- **No API facts badge in UI**: Verify `GROQ_API_KEY` is set and valid.
-- **CORS/proxy issues locally**: Ensure backend is running on port `5000` and frontend on `5173`.
-- **summary endpoint returns 404**: Run `/api/start` first (state is in-memory).
-- **`Cannot connect to DebateAI backend`**: Start backend (`cd backend && python run.py`) for local dev, or set `VITE_API_BASE_URL` in frontend production env to your deployed backend URL and redeploy.
-
----
-
-## Additional docs
-
-- [API Reference](docs/API.md)
-- [Engine Deep Dive](docs/ENGINE.md)
-- [Frontend Guide](docs/FRONTEND.md)
-- [Deployment & Operations](docs/DEPLOYMENT.md)
-- [Architecture Notes](ARCHITECTURE.md)
-
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Framer Motion, Tailwind CSS |
+| Backend | FastAPI, Python 3.10, Uvicorn |
+| Database | PostgreSQL, SQLAlchemy (async), asyncpg, Alembic |
+| AI / Reasoning | Custom Minimax + Bayesian belief model |
+| LLM (optional) | Groq API (`llama-3.1-8b-instant`) |
+| Deployment | Vercel (two projects) |
