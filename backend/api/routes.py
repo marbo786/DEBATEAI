@@ -127,8 +127,11 @@ async def user_move(req: Request, debate_id: str, data: UserMoveRequest, db: Asy
     # Process user argument
     argument = await debate_service.arg_gen.parse_user_argument(text)
     
-    # Fetch DB debate to save state
-    from backend.infra.models import DebateRecord
+    try:
+        from backend.infra.models import DebateRecord
+    except ModuleNotFoundError:
+        from infra.models import DebateRecord
+
     from sqlalchemy import select
     result = await db.execute(select(DebateRecord).where(DebateRecord.id == debate_id))
     db_debate = result.scalar_one()
