@@ -15,11 +15,14 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     DATABASE_URL = "postgresql+asyncpg://postgres:marbo786@localhost:5432/debateai"
 else:
-    # SQLAlchemy asyncpg requires 'postgresql+asyncpg://'
+    # SQLAlchemy asyncpg requires 'postgresql+asyncpg://', and does NOT support ?sslmode= params
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
     elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+        
+    if "?" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.split("?")[0]
 
 engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
 
