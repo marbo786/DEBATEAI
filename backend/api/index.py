@@ -30,6 +30,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from fastapi.responses import JSONResponse
+    from starlette.requests import Request
+    import traceback
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        import logging
+        logging.error(f"Global Error: {exc}\n{traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc), "trace": traceback.format_exc()},
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
     @app.get("/")
     def read_root():
         return {"status": "ok", "message": "DebateAI Backend is running!"}

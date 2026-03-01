@@ -6,9 +6,16 @@
  * On hosted frontend, set `VITE_API_BASE_URL` to your backend origin.
  */
 
-const ENV_API_BASE = import.meta.env.VITE_API_BASE_URL
-  ? `${import.meta.env.VITE_API_BASE_URL}`.replace(/\/$/, "")
+const rawEnvBase = import.meta.env.VITE_API_BASE_URL;
+let ENV_API_BASE = rawEnvBase
+  ? `${rawEnvBase}`.replace(/\/$/, "")
   : null;
+
+if (ENV_API_BASE && !ENV_API_BASE.startsWith("http")) {
+  ENV_API_BASE = `https://${ENV_API_BASE}`;
+}
+
+console.log("[DebateAI] Configured API Base:", ENV_API_BASE || "Using fallback");
 
 function normalizeBase(base: string): string {
   return base.endsWith("/api") ? base : `${base}/api`;
@@ -53,8 +60,9 @@ async function fetchJson(path: string, options: RequestInit = {}, defaultError =
   }
 
   if (lastError instanceof TypeError) {
+    console.error(`[DebateAI] Network/CORS Error when hitting ${bases.join(", ")}`, lastError);
     throw new Error(
-      "Unable to reach DebateAI backend. Check backend availability or set VITE_API_BASE_URL.",
+      "Unable to reach DebateAI backend. Check the browser console (F12) for exact CORS/Network details, or verify VITE_API_BASE_URL.",
     );
   }
 
