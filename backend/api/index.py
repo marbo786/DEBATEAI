@@ -4,14 +4,18 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
-    from backend.api.routes import router
-    from backend.infra.groq_client import get_facts_from_groq
-    from backend.services.debate_service import DebateService
-except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from api.routes import router
     from infra.groq_client import get_facts_from_groq
     from services.debate_service import DebateService
+except ModuleNotFoundError:
+    from backend.api.routes import router
+    from backend.infra.groq_client import get_facts_from_groq
+    from backend.services.debate_service import DebateService
 
 
 def create_app() -> FastAPI:
