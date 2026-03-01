@@ -21,10 +21,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.get("/")
+    def read_root():
+        return {"status": "ok", "message": "DebateAI Backend is running!"}
 
     app.state.debate_service = DebateService()
     app.state.facts_provider = get_facts_from_groq
