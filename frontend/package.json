@@ -10,20 +10,30 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.34.3",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.575.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "html2canvas": "^1.4.1"
+    "react-error-boundary": "^6.1.1",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
+    "typescript": "^5.9.3",
     "vite": "^5.0.0",
-    "vitest": "^2.1.8",
-    "@testing-library/react": "^16.1.0",
-    "@testing-library/jest-dom": "^6.6.3",
-    "jsdom": "^25.0.1",
-    "@testing-library/user-event": "^14.5.2"
+    "vitest": "^2.1.8"
   }
 }

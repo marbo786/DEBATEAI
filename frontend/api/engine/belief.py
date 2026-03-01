@@ -2,7 +2,7 @@
 Probabilistic audience model: belief update from argument strengths.
 Simple weighted/Bayesian-style update, clamped to [0, 1].
 """
-from .state import Argument, Side, Persona
+from .state import Argument, Side
 
 
 class BeliefModel:
@@ -46,24 +46,3 @@ class BeliefModel:
         pro_s = pro_argument.strength if pro_argument else 0.0
         con_s = con_argument.strength if con_argument else 0.0
         return self.update(current_belief, pro_s, con_s)
-
-    @classmethod
-    def create_from_persona(cls, persona: Persona | str) -> "BeliefModel":
-        """
-        Creates a belief model with parameters tailored to a persona.
-        """
-        if isinstance(persona, str):
-            try:
-                persona = Persona(persona)
-            except ValueError:
-                persona = Persona.DEFAULT
-
-        if persona == Persona.SKEPTIC:
-            return cls(sensitivity=0.05, prior=0.5)
-        elif persona == Persona.GULLIBLE:
-            return cls(sensitivity=0.25, prior=0.5)
-        elif persona == Persona.PARTISAN_PRO:
-            return cls(sensitivity=0.10, prior=0.7)
-        elif persona == Persona.PARTISAN_CON:
-            return cls(sensitivity=0.10, prior=0.3)
-        return cls(sensitivity=0.12, prior=0.5)

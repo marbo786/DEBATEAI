@@ -88,42 +88,6 @@ class ArgumentGenerator:
         self._rng.shuffle(args)
         return args[:count]
 
-    async def parse_user_argument(self, text: str) -> Argument:
-        prompt = f"""
-Analyze the following human debate argument and extract its logical components.
-Return strictly a JSON object with this schema:
-{{
-  "claim": "The main point being made (concise)",
-  "premises": ["Premise 1", "Premise 2"],
-  "inference": "How the premises lead to the claim",
-  "strength": <float 0.0-1.0 representing logical coherence>,
-  "reasoning_type": "causal", "deductive", "inductive", etc.
-}}
-
-Argument: "{text}"
-"""
-        import json
-        import math
-        try:
-            response_text = await self.llm_client.generate_completion(prompt)
-            data = json.loads(response_text)
-            return Argument(
-                claim=data.get("claim", text),
-                premises=data.get("premises", []),
-                inference=data.get("inference", ""),
-                strength=float(data.get("strength", 0.5)),
-                reasoning_type=data.get("reasoning_type", "informal")
-            )
-        except Exception as e:
-            # Fallback if parsing fails
-            return Argument(
-                claim=text,
-                premises=[],
-                inference="User provided argument",
-                strength=0.5,
-                reasoning_type="informal"
-            )
-
     def _rebuttal_argument(
         self,
         side: Side,

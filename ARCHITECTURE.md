@@ -11,8 +11,8 @@
                               HTTP (fetch / REST)
                                       │
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           BACKEND (Python / Flask)                       │
-│  /api/start  │  /api/round  │  /api/state  │  /api/summary               │
+│                           BACKEND (Python / FastAPI)                     │
+│  /api/start  │  /api/state  │  /api/summary                              │
 └─────────────────────────────────────────────────────────────────────────┘
                                       │
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -33,17 +33,20 @@ DEBATEAI/
 ├── ARCHITECTURE.md          # This file
 ├── README.md
 ├── backend/
-│   ├── requirements.txt
-│   ├── app.py               # Flask app, routes
-│   ├── engine/
+│   ├── run.py
+│   ├── app.py               # FastAPI app, routes
+│   ├── api/
+│   │   ├── routes.py        # APIRouter endpoints
+│   ├── domain/
 │   │   ├── __init__.py
 │   │   ├── state.py         # DebateState, Argument dataclass
-│   │   ├── reasoning.py     # Logical reasoning templates
-│   │   ├── minimax.py       # Minimax + alpha-beta, eval, pruning log
 │   │   ├── belief.py        # Audience belief update
-│   │   ├── facts_api.py     # Groq API for pro/con facts (optional)
-│   │   └── debate.py        # DebateRunner orchestrator
-│   └── run.py
+│   │   ├── minimax.py       # Minimax + alpha-beta, eval, pruning log
+│   │   └── reasoning.py     # Logical reasoning templates
+│   ├── infra/
+│   │   ├── groq_client.py   # Groq API for pro/con facts (async)
+│   ├── services/
+│   │   └── debate_service.py # Debate orchestration (async)
 ├── frontend/
 │   ├── package.json
 │   ├── tailwind.config.js
@@ -69,13 +72,13 @@ DEBATEAI/
 
 | Module      | Responsibility |
 |------------|-----------------|
-| `state.py` | `Argument` (claim, premises, attack_target, strength), `DebateState` (topic, pro/con claims, history, belief, round). |
-| `reasoning.py` | Template-based argument generation: causal, tradeoff, ethical, risk. Input: side, topic, existing claims → structured argument (premises, inference, claim). |
-| `minimax.py` | Minimax with alpha-beta (depth 2–3). State = debate state; actions = choose argument (or pass). Eval = f(strength, counter_strength, belief_impact). Log pruned branches. |
-| `belief.py` | `update_belief(current_belief, pro_strength, con_strength)` → new belief in [0,1]. Simple weighted or Bayesian-style update. |
-| `debate.py` | `DebateRunner`: init from topic (or optional API-provided claims), run rounds (minimax selects move, opponent counters, belief update), produce history + summary. |
-| `facts_api.py` | Optional: call Groq API to get pro/con facts for topic; used by app when `GROQ_API_KEY` is set. |
-| `app.py` | Routes: `POST /api/start` (body: `{ topic }`), `GET /api/state`, `GET/POST /api/summary`. Return JSON: state, summary, pruning_logs, facts_from_api. |
+| `domain/state.py` | `Argument` (claim, premises, attack_target, strength), `DebateState` (topic, pro/con claims, history, belief, round). |
+| `domain/reasoning.py` | Template-based argument generation: causal, tradeoff, ethical, risk. Input: side, topic, existing claims → structured argument (premises, inference, claim). |
+| `domain/minimax.py` | Minimax with alpha-beta (depth 2–3). State = debate state; actions = choose argument (or pass). Eval = f(strength, counter_strength, belief_impact). Log pruned branches. |
+| `domain/belief.py` | `update_belief(current_belief, pro_strength, con_strength)` → new belief in [0,1]. Simple weighted or Bayesian-style update. |
+| `services/debate_service.py` | `DebateService`: init from topic (or optional API-provided claims), run rounds (minimax selects move, opponent counters, belief update), produce history + summary. |
+| `infra/groq_client.py` | Optional: call Groq API to get pro/con facts for topic; used by app when `GROQ_API_KEY` is set. Asynchronous HTTP using httpx. |
+| `api/routes.py` | Routes: `POST /api/start` (body: `{ topic }`), `GET /api/state`, `POST /api/summary`. Return JSON: state, summary, pruning_logs, facts_from_api. |
 
 ---
 
@@ -136,9 +139,9 @@ DEBATEAI/
 
 ## 6. Implementation Order
 
-1. Backend: `state.py` → `reasoning.py` → `belief.py` → `minimax.py` → `debate.py` → `app.py`.
-2. Frontend: `api.js` → `TopicInput` + `DebateView` (skeleton) → `AgentPanel` + `BeliefMeter` → `SummaryCard` + download + override.
-3. Integration: CORS, run Flask + Vite, test one full debate and screenshot flow.
+1. Backend: Domain (`state.py` → `reasoning.py` → `belief.py` → `minimax.py`) → Services (`debate_service.py`) → API (`routes.py`).
+2. Frontend: `api.ts` → `TopicInput` + `DebateView` (skeleton) → `AgentPanel` + `BeliefMeter` → `SummaryCard` + download + override.
+3. Integration: CORS, run FastAPI + Vite, test one full debate and screenshot flow.
 
 ---
 

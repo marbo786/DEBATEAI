@@ -20,3 +20,17 @@ body {
 .belief-fill {
   transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+.typing-cursor::after {
+  content: '▋';
+  display: inline-block;
+  vertical-align: bottom;
+  animation: blink 1s step-end infinite;
+  margin-left: 2px;
+  color: #94a3b8;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

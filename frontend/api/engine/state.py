@@ -18,13 +18,6 @@ class ReasoningType(str, Enum):
     ETHICAL = "ethical"
     RISK = "risk"
 
-class Persona(str, Enum):
-    DEFAULT = "default"
-    SKEPTIC = "skeptic"
-    GULLIBLE = "gullible"
-    PARTISAN_PRO = "partisan_pro"
-    PARTISAN_CON = "partisan_con"
-
 
 @dataclass
 class Argument:
@@ -71,8 +64,6 @@ class DebateState:
     """
 
     topic: str
-    id: Optional[str] = None
-    user_side: str = "auto"
     pro_claims: list[str] = field(default_factory=list)
     con_claims: list[str] = field(default_factory=list)
     history: list[RoundRecord] = field(default_factory=list)
@@ -87,9 +78,7 @@ class DebateState:
         # "round" = current debate round (1-based), not move count
         display_round = min(self.max_rounds, (self.round_number + 1) // 2)
         return {
-            "id": self.id,
             "topic": self.topic,
-            "user_side": self.user_side,
             "round": display_round,
             "belief": self.belief,
             "pro_claims": self.pro_claims.copy(),
@@ -102,9 +91,7 @@ class DebateState:
 
     def copy(self) -> "DebateState":
         return DebateState(
-            id=self.id,
             topic=self.topic,
-            user_side=self.user_side,
             pro_claims=self.pro_claims.copy(),
             con_claims=self.con_claims.copy(),
             history=[r for r in self.history],

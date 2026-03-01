@@ -25,7 +25,7 @@ def _normalize_claims(values: list) -> list[str]:
     return [str(x).strip() for x in values if str(x).strip()]
 
 
-def get_facts_from_groq(topic: str) -> tuple[list[str], list[str]] | None:
+async def get_facts_from_groq(topic: str) -> tuple[list[str], list[str]] | None:
     """Return (pro_claims, con_claims) from Groq, or None on any failure."""
     key = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not key:
@@ -39,8 +39,8 @@ Output a single JSON object with exactly two keys: "pro" and "con".
 Each claim should be one sentence. Output valid JSON only, no markdown or code fences.'''
 
     try:
-        with httpx.Client(timeout=TIMEOUT) as client:
-            response = client.post(
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
                 GROQ_URL,
                 headers={
                     "Authorization": f"Bearer {key}",

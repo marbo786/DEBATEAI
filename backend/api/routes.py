@@ -1,107 +1,141 @@
-"""Flask routes/controllers for DebateAI API."""
+"""FastAPI routes/controllers for DebateAI API."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
-from flask import Blueprint, current_app, jsonify, request
+from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from backend.services.debate_service import DebateService
-    from backend.domain.state import DebateState
+    from backend.domain.state import DebateState, Persona
+    from backend.infra.database import get_db
+    from backend.infra.models import DebateRecord
 except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from services.debate_service import DebateService
-    from domain.state import DebateState
+    from domain.state import DebateState, Persona
+    from infra.database import get_db
+    from infra.models import DebateRecord
 
-api_bp = Blueprint("api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api")
 
+class StartRequest(BaseModel):
+    topic: str
+    max_rounds: Optional[int] = 6
+    persona: Optional[str] = "default"
+    user_side: Optional[str] = "auto"
 
-class DebateStore:
-    """In-memory state for one active debate."""
+class SummaryOverrideRequest(BaseModel):
+    override_audience: Optional[float] = None
 
-    def __init__(self) -> None:
-        self.state: DebateState | None = None
-        self.pruning_logs: list[dict] | None = None
-        self.facts_from_api: bool = False
+class UserMoveRequest(BaseModel):
+    text: str
 
-
-def _service() -> DebateService:
-    return current_app.config["debate_service"]
-
-
-def _store() -> DebateStore:
-    return current_app.config["debate_store"]
-
-
-def _facts_provider():
-    return current_app.config["facts_provider"]
-
-
-def _parse_int(value: Any, default: int, field_name: str) -> int:
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be an integer") from exc
-
-
-@api_bp.route("/start", methods=["POST"])
-def start() -> tuple[Any, int] | Any:
-    data = request.get_json() or {}
-    topic = (data.get("topic") or "").strip()
+@router.post("/start")
+async def start(req: Request, data: StartRequest, db: AsyncSession = Depends(get_db)) -> Any:
+    topic = data.topic.strip()
     if not topic:
-        return jsonify({"error": "topic is required"}), 400
+        raise HTTPException(status_code=400, detail="topic is required")
+    
+    debate_service: DebateService = req.app.state.debate_service
+    facts_provider = req.app.state.facts_provider
 
-    try:
-        requested_rounds = _parse_int(data.get("max_rounds"), 6, "max_rounds")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    result = await debate_service.run_debate(topic, data.max_rounds, facts_provider, data.persona, data.user_side, db)
 
-    result = _service().run_debate(topic, requested_rounds, _facts_provider())
+    return {
+        "debate_id": str(result.state.id) if hasattr(result.state, 'id') else None,
+        "state": result.state.to_dict(),
+        "summary": debate_service.summarize(result.state),
+        "pruning_logs": result.pruning_logs,
+        "facts_from_api": result.facts_from_api,
+    }
 
-    store = _store()
-    store.state = result.state
-    store.pruning_logs = result.pruning_logs
-    store.facts_from_api = result.facts_from_api
+@router.get("/stream")
+async def stream(req: Request, topic: str, max_rounds: Optional[int] = 6, persona: Optional[str] = "default", user_side: Optional[str] = "auto", db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+    topic = topic.strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic is required")
+        
+    debate_service: DebateService = req.app.state.debate_service
+    facts_provider = req.app.state.facts_provider
 
-    return jsonify(
-        {
-            "state": result.state.to_dict(),
-            "summary": _service().summarize(result.state),
-            "pruning_logs": result.pruning_logs,
-            "facts_from_api": result.facts_from_api,
-        }
-    )
+    async def event_generator():
+        async for chunk in debate_service.run_debate_stream(topic, max_rounds, facts_provider, persona, user_side, db):
+            yield chunk
 
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-@api_bp.route("/state", methods=["GET"])
-def state() -> Any:
-    current_state = _store().state
+@router.get("/debate/{debate_id}/stream_turn")
+async def stream_turn(req: Request, debate_id: str, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+    debate_service: DebateService = req.app.state.debate_service
+    
+    current_state = await debate_service.get_debate_state(debate_id, db)
     if current_state is None:
-        return jsonify({"state": None, "summary": None})
+        raise HTTPException(status_code=404, detail="debate not found")
+        
+    async def event_generator():
+        async for chunk in debate_service.run_turn_stream(debate_id, db):
+            yield chunk
 
-    return jsonify(
-        {
-            "state": current_state.to_dict(),
-            "summary": _service().summarize(current_state),
-        }
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-
-@api_bp.route("/summary", methods=["GET", "POST"])
-def summary() -> tuple[Any, int] | Any:
-    current_state = _store().state
+@router.get("/state/{debate_id}")
+async def state(req: Request, debate_id: str, db: AsyncSession = Depends(get_db)) -> Any:
+    debate_service: DebateService = req.app.state.debate_service
+    current_state = await debate_service.get_debate_state(debate_id, db)
     if current_state is None:
-        return jsonify({"error": "no debate run yet"}), 404
+        raise HTTPException(status_code=404, detail="debate not found")
+    
+    return {
+        "state": current_state.to_dict(),
+        "summary": debate_service.summarize(current_state),
+    }
 
-    if request.method == "POST":
-        data = request.get_json() or {}
-        value = data.get("override_audience")
-        if value is not None:
-            try:
-                override = max(0.0, min(1.0, float(value)))
-            except (TypeError, ValueError):
-                return jsonify({"error": "override_audience must be a number between 0 and 1"}), 400
-            return jsonify(_service().summarize(current_state, override_belief=override))
+@router.api_route("/summary/{debate_id}", methods=["GET", "POST"])
+async def summary(req: Request, debate_id: str, data: SummaryOverrideRequest = None, db: AsyncSession = Depends(get_db)) -> Any:
+    debate_service: DebateService = req.app.state.debate_service
+    current_state = await debate_service.get_debate_state(debate_id, db)
+    if current_state is None:
+        raise HTTPException(status_code=404, detail="debate not found")
+    
+    if req.method == "POST" and data and data.override_audience is not None:
+        override = max(0.0, min(1.0, data.override_audience))
+        return debate_service.summarize(current_state, override_belief=override)
 
-    return jsonify(_service().summarize(current_state))
+    return debate_service.summarize(current_state)
+
+@router.post("/debate/{debate_id}/move")
+async def user_move(req: Request, debate_id: str, data: UserMoveRequest, db: AsyncSession = Depends(get_db)) -> Any:
+    text = data.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+        
+    debate_service: DebateService = req.app.state.debate_service
+    current_state = await debate_service.get_debate_state(debate_id, db)
+    
+    if current_state is None:
+        raise HTTPException(status_code=404, detail="debate not found")
+        
+    if current_state.round_number // 2 >= current_state.max_rounds:
+        raise HTTPException(status_code=400, detail="debate is already finished")
+        
+    # Determine side based on round_number (even=PRO, odd=CON)
+    side = Side.PRO if current_state.round_number % 2 == 0 else Side.CON
+    
+    # Process user argument
+    argument = await debate_service.arg_gen.parse_user_argument(text)
+    
+    # Fetch DB debate to save state
+    from backend.infra.models import DebateRecord
+    from sqlalchemy import select
+    result = await db.execute(select(DebateRecord).where(DebateRecord.id == debate_id))
+    db_debate = result.scalar_one()
+    
+    new_state = await debate_service._apply(current_state, side, argument, db, db_debate)
+    
+    return {
+        "state": new_state.to_dict(),
+        "summary": debate_service.summarize(new_state)
+    }

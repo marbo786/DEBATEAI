@@ -1,21 +1,31 @@
 """Debate orchestration use-cases independent of delivery framework."""
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Awaitable, AsyncGenerator
 
 try:
     from backend.domain.belief import BeliefModel
     from backend.domain.minimax import MinimaxAgent
     from backend.domain.reasoning import ArgumentGenerator
-    from backend.domain.state import DebateState, RoundRecord, Side
+    from backend.domain.state import DebateState, RoundRecord, Side, Argument, Persona
+    from backend.infra.models import DebateRecord, RoundRecordModel
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from domain.belief import BeliefModel
     from domain.minimax import MinimaxAgent
     from domain.reasoning import ArgumentGenerator
-    from domain.state import DebateState, RoundRecord, Side
+    from domain.state import DebateState, RoundRecord, Side, Argument, Persona
+    from infra.models import DebateRecord, RoundRecordModel
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 
-FactsProvider = Callable[[str], tuple[list[str], list[str]] | None]
+FactsProvider = Callable[[str], Awaitable[tuple[list[str], list[str]] | None]]
 
 
 @dataclass
@@ -43,14 +53,60 @@ class DebateService:
             depth=3,
         )
 
-    def run_debate(
+    async def get_debate_state(self, debate_id: str, db: AsyncSession) -> DebateState | None:
+        result = await db.execute(
+            select(DebateRecord)
+            .where(DebateRecord.id == debate_id)
+            .options(selectinload(DebateRecord.rounds))
+        )
+        record = result.scalar_one_or_none()
+        if not record:
+            return None
+        return self._build_state_from_record(record)
+
+    def _build_state_from_record(self, record: DebateRecord) -> DebateState:
+        history = []
+        belief_history = [0.5]
+        for r_rec in record.rounds:
+            arg = Argument(
+                claim=r_rec.claim,
+                premises=r_rec.premises,
+                inference=r_rec.inference,
+                strength=r_rec.strength,
+                reasoning_type=r_rec.reasoning_type,
+            )
+            history.append(RoundRecord(side=Side(r_rec.side), argument=arg, belief_after=r_rec.belief_after))
+            belief_history.append(r_rec.belief_after)
+        state = DebateState(
+            id=str(record.id),
+            topic=record.topic,
+            user_side=record.user_side,
+            pro_claims=record.pro_claims,
+            con_claims=record.con_claims,
+            history=history,
+            belief=record.belief,
+            belief_history=belief_history,
+            round_number=len(history),
+            max_rounds=record.max_rounds,
+            winner=Side(record.winner) if record.winner else None
+        )
+        state.turning_point_round = self._turning_point(state)
+        return state
+
+    async def run_debate(
         self,
         topic: str,
         rounds: int,
         facts_provider: FactsProvider | None = None,
+        persona: Persona | str = Persona.DEFAULT,
+        user_side: str = "auto",
+        db: AsyncSession = None,
     ) -> DebateResult:
+        self.belief_model = BeliefModel.create_from_persona(persona)
+        self.minimax_pro = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+        self.minimax_con = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
         max_rounds = min(6, max(4, rounds))
-        api_facts = facts_provider(topic) if facts_provider else None
+        api_facts = await facts_provider(topic) if facts_provider else None
         facts_from_api = bool(api_facts)
 
         if api_facts is not None:
@@ -60,6 +116,7 @@ class DebateService:
 
         state = DebateState(
             topic=topic,
+            user_side=user_side,
             pro_claims=pro_claims,
             con_claims=con_claims,
             history=[],
@@ -69,11 +126,27 @@ class DebateService:
             max_rounds=max_rounds,
         )
 
+        db_debate = None
+        if db:
+            db_debate = DebateRecord(
+                topic=topic,
+                persona=persona.value if isinstance(persona, Persona) else persona,
+                user_side=user_side,
+                pro_claims=pro_claims,
+                con_claims=con_claims,
+                max_rounds=max_rounds,
+                belief=self.belief_model.prior
+            )
+            db.add(db_debate)
+            await db.commit()
+            await db.refresh(db_debate)
+            state.id = str(db_debate.id)
+
         pruning_logs: list[dict] = []
         for debate_round in range(max_rounds):
             best_pro, _ = self.minimax_pro.get_best_argument(state, Side.PRO)
             if best_pro:
-                state = self._apply(state, Side.PRO, best_pro)
+                state = await self._apply(state, Side.PRO, best_pro, db, db_debate)
                 pruning_logs.append(
                     {
                         "side": "pro",
@@ -87,7 +160,7 @@ class DebateService:
 
             best_con, _ = self.minimax_con.get_best_argument(state, Side.CON)
             if best_con:
-                state = self._apply(state, Side.CON, best_con)
+                state = await self._apply(state, Side.CON, best_con, db, db_debate)
                 pruning_logs.append(
                     {
                         "side": "con",
@@ -101,11 +174,168 @@ class DebateService:
 
         state.winner = self._winner(state)
         state.turning_point_round = self._turning_point(state)
+
+        if db and db_debate:
+            db_debate.status = "completed"
+            db_debate.winner = state.winner.value if state.winner else "tie"
+            await db.commit()
+
         return DebateResult(
             state=state,
             pruning_logs=pruning_logs,
             facts_from_api=facts_from_api,
         )
+
+    async def run_debate_stream(
+        self,
+        topic: str,
+        rounds: int,
+        facts_provider: FactsProvider | None = None,
+        persona: Persona | str = Persona.DEFAULT,
+        user_side: str = "auto",
+        db: AsyncSession = None,
+    ) -> AsyncGenerator[str, None]:
+        self.belief_model = BeliefModel.create_from_persona(persona)
+        self.minimax_pro = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+        self.minimax_con = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+        max_rounds = min(6, max(4, rounds))
+        api_facts = await facts_provider(topic) if facts_provider else None
+        facts_from_api = bool(api_facts)
+
+        if api_facts is not None:
+            pro_claims, con_claims = api_facts
+        else:
+            pro_claims, con_claims = self.arg_gen.generate_initial_claims(topic)
+
+        state = DebateState(
+            topic=topic,
+            user_side=user_side,
+            pro_claims=pro_claims,
+            con_claims=con_claims,
+            history=[],
+            belief=self.belief_model.prior,
+            belief_history=[self.belief_model.prior],
+            round_number=0,
+            max_rounds=max_rounds,
+        )
+
+        db_debate = None
+        if db:
+            db_debate = DebateRecord(
+                topic=topic,
+                persona=persona.value if isinstance(persona, Persona) else persona,
+                user_side=user_side,
+                pro_claims=pro_claims,
+                con_claims=con_claims,
+                max_rounds=max_rounds,
+                belief=self.belief_model.prior
+            )
+            db.add(db_debate)
+            await db.commit()
+            await db.refresh(db_debate)
+            state.id = str(db_debate.id)
+
+        yield f"data: {json.dumps({'type': 'init', 'state': state.to_dict(), 'facts_from_api': facts_from_api})}\n\n"
+        
+        for debate_round in range(max_rounds):
+            await asyncio.sleep(0.5)
+            best_pro, _ = self.minimax_pro.get_best_argument(state, Side.PRO)
+            if best_pro:
+                words = best_pro.claim.split(" ")
+                for word in words:
+                    yield f"data: {json.dumps({'type': 'typing', 'side': 'pro', 'chunk': word + ' '})}\n\n"
+                    await asyncio.sleep(0.04)
+                
+                state = await self._apply(state, Side.PRO, best_pro, db, db_debate)
+                yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
+                await asyncio.sleep(0.5)
+
+            if (state.round_number // 2) >= state.max_rounds:
+                break
+
+            await asyncio.sleep(0.5)
+            best_con, _ = self.minimax_con.get_best_argument(state, Side.CON)
+            if best_con:
+                words = best_con.claim.split(" ")
+                for word in words:
+                    yield f"data: {json.dumps({'type': 'typing', 'side': 'con', 'chunk': word + ' '})}\n\n"
+                    await asyncio.sleep(0.04)
+                
+                state = await self._apply(state, Side.CON, best_con, db, db_debate)
+                yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
+                await asyncio.sleep(0.5)
+
+            if (state.round_number // 2) >= state.max_rounds:
+                break
+
+        state.winner = self._winner(state)
+        state.turning_point_round = self._turning_point(state)
+
+        if db and db_debate:
+            db_debate.status = "completed"
+            db_debate.winner = state.winner.value if state.winner else "tie"
+            await db.commit()
+
+        yield f"data: {json.dumps({'type': 'done', 'state': state.to_dict(), 'summary': self.summarize(state)})}\n\n"
+
+    async def run_turn_stream(
+        self,
+        debate_id: str,
+        db: AsyncSession,
+    ) -> AsyncGenerator[str, None]:
+        # Fetch directly including the DebateRecord for passing to _apply
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        result = await db.execute(
+            select(DebateRecord).where(DebateRecord.id == debate_id).options(selectinload(DebateRecord.rounds))
+        )
+        db_debate = result.scalar_one_or_none()
+        if not db_debate:
+            return
+
+        state = self._build_state_from_record(db_debate)
+        if (state.round_number // 2) >= state.max_rounds:
+            yield f"data: {json.dumps({'type': 'done', 'state': state.to_dict(), 'summary': self.summarize(state)})}\n\n"
+            return
+            
+        is_pro_turn = (state.round_number % 2 == 0)
+        current_side = Side.PRO if is_pro_turn else Side.CON
+        
+        # Check if it's the user's turn
+        if state.user_side == current_side.value:
+            yield f"data: {json.dumps({'type': 'waiting_for_user', 'state': state.to_dict()})}\n\n"
+            return
+            
+        # AI's turn
+        self.belief_model = BeliefModel.create_from_persona(db_debate.persona)
+        agent = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+        
+        await asyncio.sleep(0.5)
+        best_arg, _ = agent.get_best_argument(state, current_side)
+        
+        if best_arg:
+            words = best_arg.claim.split(" ")
+            for word in words:
+                yield f"data: {json.dumps({'type': 'typing', 'side': current_side.value, 'chunk': word + ' '})}\n\n"
+                await asyncio.sleep(0.04)
+            
+            state = await self._apply(state, current_side, best_arg, db, db_debate)
+            yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            if (state.round_number // 2) >= state.max_rounds:
+                state.winner = self._winner(state)
+                state.turning_point_round = self._turning_point(state)
+                db_debate.status = "completed"
+                db_debate.winner = state.winner.value if state.winner else "tie"
+                await db.commit()
+                yield f"data: {json.dumps({'type': 'done', 'state': state.to_dict(), 'summary': self.summarize(state)})}\n\n"
+            else:
+                next_side = Side.PRO if state.round_number % 2 == 0 else Side.CON
+                if state.user_side == next_side.value:
+                     yield f"data: {json.dumps({'type': 'waiting_for_user', 'state': state.to_dict()})}\n\n"
+                else:
+                     yield f"data: {json.dumps({'type': 'turn_complete', 'state': state.to_dict()})}\n\n"
 
     def summarize(self, state: DebateState, override_belief: float | None = None) -> dict:
         belief = override_belief if override_belief is not None else state.belief
@@ -124,13 +354,31 @@ class DebateService:
             "total_rounds": state.round_number,
         }
 
-    def _apply(self, state: DebateState, side: Side, argument) -> DebateState:
+    async def _apply(self, state: DebateState, side: Side, argument: Argument, db: AsyncSession = None, db_debate: DebateRecord = None) -> DebateState:
         pro_arg = argument if side == Side.PRO else None
         con_arg = argument if side == Side.CON else None
         new_belief = self.belief_model.update_from_arguments(state.belief, pro_arg, con_arg)
         state.history.append(RoundRecord(side=side, argument=argument, belief_after=new_belief))
         state.belief = new_belief
         state.belief_history.append(new_belief)
+        
+        if db and db_debate:
+            round_rec = RoundRecordModel(
+                debate_id=db_debate.id,
+                round_number=state.round_number + 1,
+                side=side.value,
+                claim=argument.claim,
+                premises=argument.premises,
+                inference=argument.inference,
+                strength=argument.strength,
+                reasoning_type=argument.reasoning_type,
+                belief_after=new_belief,
+                is_user_move=False,
+            )
+            db.add(round_rec)
+            db_debate.belief = new_belief
+            await db.commit()
+
         state.round_number += 1
         return state
 
