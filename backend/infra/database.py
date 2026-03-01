@@ -2,8 +2,23 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-# Hardcoded for development. In production, use environment variables.
-DATABASE_URL = "postgresql+asyncpg://postgres:marbo786@localhost:5432/debateai"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# First attempt to read from environment variables (used in Vercel)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Fallback to local development DB if not set
+if not DATABASE_URL:
+    DATABASE_URL = "postgresql+asyncpg://postgres:marbo786@localhost:5432/debateai"
+else:
+    # SQLAlchemy asyncpg requires 'postgresql+asyncpg://'
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 
