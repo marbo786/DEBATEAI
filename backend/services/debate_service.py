@@ -478,26 +478,35 @@ class DebateService:
             return Side.CON
         return None
 
+
     @staticmethod
     def _turning_point(state: DebateState) -> int | None:
         """
-        Finds the debate round where the largest single-move belief swing occurred.
+        Finds the round with the largest NET belief shift.
 
-        belief_history[0] = initial prior (before any move).
-        belief_history[i] = belief after move i (i >= 1).
-        Move i maps to debate round ceil(i/2) = (i + 1) // 2:
-          i=1 (PRO round 1) -> round 1
-          i=2 (CON round 1) -> round 1
-          i=3 (PRO round 2) -> round 2
-          i=4 (CON round 2) -> round 2  etc.
+        For each complete round k (1-indexed):
+          net_shift = |belief_history[2k] - belief_history[2k-2]|
+
+        This measures how much the audience's belief actually moved across
+        the full round (both PRO and CON spoke), which closely mirrors the
+        net strength advantage:  net_shift ≈ sensitivity × |pro_s − con_s|.
+
+        A round where PRO scores 0.90 and CON only 0.30 will produce a
+        large net shift and be identified as the turning point.
+        Rounds where both sides were equally strong cancel out and don't count.
         """
-        if len(state.belief_history) < 2:
+        bh = state.belief_history
+        n_complete = (len(bh) - 1) // 2  # number of fully completed rounds
+        if n_complete < 1:
             return None
-        max_swing = 0.0
+
+        max_shift = 0.0
         turn_round = None
-        for i in range(1, len(state.belief_history)):
-            swing = abs(state.belief_history[i] - state.belief_history[i - 1])
-            if swing > max_swing:
-                max_swing = swing
-                turn_round = (i + 1) // 2  # ceil(i/2) maps move -> round
-        return turn_round or 1
+        for k in range(1, n_complete + 1):
+            before = bh[2 * (k - 1)]   # belief at start of round k
+            after  = bh[2 * k]          # belief at end of round k (after CON move)
+            shift  = abs(after - before)
+            if shift > max_shift:
+                max_shift = shift
+                turn_round = k
+        return turn_round
