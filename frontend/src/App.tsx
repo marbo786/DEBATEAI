@@ -7,7 +7,7 @@ import {
   submitDebateMove,
   getSummary,
 } from "./api";
-import type { DebateState, SummaryPayload, StreamEvent } from "./types";
+import type { DebateState, SummaryPayload, StreamEvent, DebateHistoryItem } from "./types";
 import TopicInput from "./components/TopicInput";
 import DebateView from "./components/DebateView";
 import SummaryCard from "./components/SummaryCard";
@@ -30,6 +30,9 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isDone, setIsDone] = useState(false);
+  // User move feedback: the last argument the user submitted
+  const [lastUserMove, setLastUserMove] = useState<DebateHistoryItem | null>(null);
+  const moveFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelStreamRef = useRef<(() => void) | null>(null);
   // Prevent double-triggering next turn
@@ -66,6 +69,8 @@ export default function App() {
     setIsWaitingForUser(false);
     setUserText("");
     setOverrideFeedback(null);
+    setLastUserMove(null);
+    if (moveFeedbackTimerRef.current) clearTimeout(moveFeedbackTimerRef.current);
     setIsDone(false);
 
     try {
@@ -143,10 +148,20 @@ export default function App() {
     setIsSubmitting(true);
     setStreamError(null);
     setIsWaitingForUser(false);
+    setLastUserMove(null);
+    if (moveFeedbackTimerRef.current) clearTimeout(moveFeedbackTimerRef.current);
     try {
       const res = await submitDebateMove(debate.debate_id, userText.trim());
       setStreamingState(res.state);
       setDebate((d) => d ? { ...d, state: res.state } : d);
+      // Show feedback: find the user's move (last entry matching their side)
+      const userSide = debate.state.user_side;
+      const lastEntry = res.state.history[res.state.history.length - 1];
+      if (lastEntry && (userSide === "auto" || lastEntry.side === userSide)) {
+        setLastUserMove(lastEntry);
+        // Auto-dismiss after 10 seconds
+        moveFeedbackTimerRef.current = setTimeout(() => setLastUserMove(null), 10000);
+      }
       setUserText("");
       setIsSubmitting(false);
       startNextTurn(debate.debate_id);
@@ -260,6 +275,62 @@ export default function App() {
                 </button>
               </div>
             </motion.form>
+          )}
+        </AnimatePresence>
+
+        {/* User move feedback panel */}
+        <AnimatePresence>
+          {lastUserMove && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.3 }}
+              className="mt-4 rounded-xl border border-emerald-700/40 bg-emerald-950/30 backdrop-blur-sm p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold tracking-widest text-emerald-600 uppercase mb-1">
+                    Your Argument — Analysis
+                  </p>
+                  <p className="text-sm text-slate-200 leading-snug mb-3 line-clamp-2">
+                    {lastUserMove.argument.claim}
+                  </p>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* Strength bar */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500 uppercase">Strength</span>
+                      <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-emerald-700 to-emerald-400 rounded-full"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.round(lastUserMove.argument.strength * 100)}%` }}
+                          transition={{ duration: 0.6, delay: 0.1 }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-emerald-400">
+                        {Math.round(lastUserMove.argument.strength * 100)}%
+                      </span>
+                    </div>
+                    {/* Reasoning type badge */}
+                    <span className="px-2 py-0.5 rounded-full border border-slate-700/50 bg-slate-800/60 text-[10px] font-medium text-slate-400 capitalize">
+                      {lastUserMove.argument.reasoning_type}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (moveFeedbackTimerRef.current) clearTimeout(moveFeedbackTimerRef.current);
+                    setLastUserMove(null);
+                  }}
+                  className="text-slate-600 hover:text-slate-400 transition text-lg leading-none flex-shrink-0 mt-0.5"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
 

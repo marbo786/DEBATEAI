@@ -95,6 +95,7 @@ class DebateState:
             "user_side": self.user_side,
             "round": display_round,
             "belief": self.belief,
+            "belief_history": self.belief_history.copy(),
             "pro_claims": self.pro_claims.copy(),
             "con_claims": self.con_claims.copy(),
             "history": [r.to_dict() for r in self.history],

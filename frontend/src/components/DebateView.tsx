@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AgentPanel from "./AgentPanel";
 import BeliefMeter from "./BeliefMeter";
+import BeliefChart from "./BeliefChart";
 import type { DebateState, DebateHistoryItem, Side } from "../types";
 
 export interface DebateViewProps {
@@ -92,15 +93,64 @@ export default function DebateView({ state, history, factsFromApi, activeTyping,
         )}
       </AnimatePresence>
 
-      {/* Belief Meter (persistent) */}
+      {/* Belief Meter + Chart (persistent) */}
       {state && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="rounded-2xl border border-slate-700/40 bg-white/[0.025] backdrop-blur-sm px-6 py-5 shadow-xl"
+          className="rounded-2xl border border-slate-700/40 bg-white/[0.025] backdrop-blur-sm px-6 py-5 shadow-xl flex flex-col gap-5"
         >
           <BeliefMeter belief={belief} round={displayRound} maxRounds={maxRounds} />
+          {/* Chart — only show once we have 2+ belt history points */}
+          <AnimatePresence>
+            {(state.belief_history?.length ?? 0) >= 2 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.4 }}
+              >
+                <BeliefChart
+                  beliefHistory={state.belief_history!}
+                  maxRounds={maxRounds}
+                  turningPointRound={state.turning_point_round}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
+      )}
+
+      {/* Round progress dots */}
+      {state && maxRounds > 0 && (
+        <div className="flex items-center gap-1.5 justify-center">
+          {Array.from({ length: maxRounds }).map((_, i) => {
+            const roundNum = i + 1;
+            const isCompleted = roundNum <= roundPairs.length;
+            const isCurrent = roundNum === roundPairs.length + 1 && !!(activeTyping || isStreaming);
+            // Color by who was winning at end of that round
+            const belief_after = state.belief_history?.[i * 2 + 2];
+            const dotColor = isCompleted
+              ? (belief_after !== undefined
+                ? belief_after > 0.52 ? "bg-emerald-500"
+                  : belief_after < 0.48 ? "bg-rose-500"
+                    : "bg-slate-500"
+                : "bg-slate-600")
+              : isCurrent ? "bg-slate-400 animate-pulse"
+                : "bg-slate-800";
+            return (
+              <motion.div
+                key={roundNum}
+                title={`Round ${roundNum}`}
+                className={`rounded-full transition-all duration-300 ${isCurrent ? "w-3 h-3 ring-2 ring-slate-400/50" : "w-2 h-2"
+                  } ${dotColor}`}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: i * 0.05 }}
+              />
+            );
+          })}
+        </div>
       )}
 
       {/* Rounds — stagger them in as they arrive */}

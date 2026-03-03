@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import html2canvas from "html2canvas";
 import type { SummaryPayload, DebateState } from "../types";
+import BeliefChart from "./BeliefChart";
 
 export interface SummaryCardProps {
   summary: SummaryPayload;
@@ -162,6 +163,16 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
               <span className="text-rose-400 font-bold text-sm tabular-nums w-14 text-right">Con {conPct}%</span>
             </div>
           </div>
+
+          {/* Belief trajectory chart */}
+          {(state?.belief_history?.length ?? 0) >= 2 && (
+            <BeliefChart
+              beliefHistory={state!.belief_history!}
+              maxRounds={state!.max_rounds}
+              turningPointRound={s.turning_point_round}
+              className="mt-2"
+            />
+          )}
 
           {/* Stats row */}
           <div className="flex gap-4 flex-wrap">
