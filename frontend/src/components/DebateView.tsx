@@ -167,8 +167,8 @@ export default function DebateView({ state, history, factsFromApi, activeTyping,
             className="rounded-2xl border border-slate-700/30 bg-white/[0.015] backdrop-blur-sm overflow-hidden"
           >
             {/* Round header */}
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-700/30 bg-white/[0.015]">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
+            <div className="flex items-center gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/30 bg-white/[0.015]">
+              <span className="flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
                 {roundNum}
               </span>
               <span className="text-sm font-semibold text-slate-300">Round {roundNum}</span>
@@ -180,7 +180,7 @@ export default function DebateView({ state, history, factsFromApi, activeTyping,
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 p-3 sm:p-4">
               <AgentPanel
                 side="pro"
                 argument={pro?.argument ?? null}
@@ -203,8 +203,8 @@ export default function DebateView({ state, history, factsFromApi, activeTyping,
             animate={{ opacity: 1, y: 0 }}
             className="rounded-2xl border border-slate-600/50 bg-white/[0.02] backdrop-blur-sm overflow-hidden"
           >
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-700/30 bg-white/[0.02]">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
+            <div className="flex items-center gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/30 bg-white/[0.02]">
+              <span className="flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-700/60 text-xs font-bold text-slate-300">
                 {liveRoundNum}
               </span>
               <span className="text-sm font-semibold text-slate-300">Round {liveRoundNum}</span>

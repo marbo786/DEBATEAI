@@ -32,7 +32,7 @@ export default function TopicInput({ onStart, loading }: TopicInputProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-sm p-6 shadow-2xl"
+      className="rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-sm p-4 sm:p-6 shadow-2xl"
     >
       {/* Topic input */}
       <div className="mb-5">
@@ -44,7 +44,7 @@ export default function TopicInput({ onStart, loading }: TopicInputProps) {
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder="e.g. AI will replace most human jobs in 20 years"
-          className="w-full rounded-xl border border-slate-700/60 bg-slate-900/70 px-4 py-3.5 text-slate-100 placeholder-slate-600 focus:border-emerald-500/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 transition text-sm"
+          className="w-full rounded-xl border border-slate-700/60 bg-slate-900/70 px-4 py-3.5 text-slate-100 placeholder-slate-600 focus:border-emerald-500/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 transition text-base"
           disabled={loading}
         />
       </div>
@@ -64,8 +64,8 @@ export default function TopicInput({ onStart, loading }: TopicInputProps) {
                 disabled={loading}
                 onClick={() => setPersona(p.value)}
                 className={`rounded-xl px-3 py-2.5 text-left transition border text-xs ${persona === p.value
-                    ? "border-emerald-500/60 bg-emerald-900/30 text-emerald-300"
-                    : "border-slate-700/50 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-300"
+                  ? "border-emerald-500/60 bg-emerald-900/30 text-emerald-300"
+                  : "border-slate-700/50 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-300"
                   }`}
               >
                 <div className="font-semibold">{p.label}</div>
@@ -88,12 +88,12 @@ export default function TopicInput({ onStart, loading }: TopicInputProps) {
                 disabled={loading}
                 onClick={() => setUserSide(s.value)}
                 className={`rounded-xl px-3 py-2.5 text-left transition border text-xs ${userSide === s.value
-                    ? s.value === "auto"
-                      ? "border-slate-500/60 bg-slate-700/40 text-slate-200"
-                      : s.value === "pro"
-                        ? "border-emerald-500/60 bg-emerald-900/30 text-emerald-300"
-                        : "border-rose-500/60 bg-rose-900/30 text-rose-300"
-                    : "border-slate-700/50 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-300"
+                  ? s.value === "auto"
+                    ? "border-slate-500/60 bg-slate-700/40 text-slate-200"
+                    : s.value === "pro"
+                      ? "border-emerald-500/60 bg-emerald-900/30 text-emerald-300"
+                      : "border-rose-500/60 bg-rose-900/30 text-rose-300"
+                  : "border-slate-700/50 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-300"
                   }`}
               >
                 <div className="font-semibold">{s.label}</div>

@@ -26,7 +26,7 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
   if (!arg && !typingText) {
     return (
       <div
-        className={`rounded-2xl border ${isActive ? accentBorder : "border-slate-700/50"} bg-white/[0.03] backdrop-blur-sm p-5 min-h-[180px] flex flex-col justify-center items-center text-slate-500 transition-all duration-300 shadow-lg ${isActive ? accentGlow : ""}`}
+        className={`rounded-2xl border ${isActive ? accentBorder : "border-slate-700/50"} bg-white/[0.03] backdrop-blur-sm p-3 sm:p-5 min-h-[140px] sm:min-h-[180px] flex flex-col justify-center items-center text-slate-500 transition-all duration-300 shadow-lg ${isActive ? accentGlow : ""}`}
       >
         {isActive ? (
           <div className="flex flex-col items-center gap-3">
@@ -53,7 +53,7 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`rounded-2xl border ${accentBorder} ${accentBg} backdrop-blur-sm p-5 shadow-lg ${accentGlow}`}
+      className={`rounded-2xl border ${accentBorder} ${accentBg} backdrop-blur-sm p-3 sm:p-5 shadow-lg ${accentGlow}`}
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
@@ -68,12 +68,12 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
 
       {/* Claim / Typing text */}
       {typingText != null ? (
-        <p className={`text-slate-100 font-semibold text-base leading-relaxed min-h-[80px] typing-cursor`}>
+        <p className={`text-slate-100 font-semibold text-sm sm:text-base leading-relaxed min-h-[80px] typing-cursor`}>
           {typingText}
         </p>
       ) : arg ? (
         <>
-          <p className="text-slate-100 font-semibold text-base leading-relaxed mb-4">{arg.claim}</p>
+          <p className="text-slate-100 font-semibold text-sm sm:text-base leading-relaxed mb-4">{arg.claim}</p>
 
           {/* Premises */}
           {arg.premises?.length > 0 && (

@@ -219,7 +219,7 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
           <p className="text-xs text-slate-600 mb-3">
             Replay the debate through a different starting audience. The arguments stay the same — only the audience bias changes.
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {AUDIENCE_OPTIONS.map((opt) => {
               const isActive = previewOverride === opt.value;
               const borderMap: Record<string, string> = {
@@ -245,7 +245,7 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
 
         {/* Download */}
         <div className="pt-3 border-t border-white/[0.05]">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold tracking-widest text-slate-500 uppercase mb-0.5">Share Results</p>
               <p className="text-xs text-slate-600">Download the summary card as a PNG image</p>

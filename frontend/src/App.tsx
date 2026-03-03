@@ -191,13 +191,13 @@ export default function App() {
               Debate<span className="text-emerald-400">AI</span>
             </h1>
           </div>
-          <p className="text-center text-slate-500 text-xs tracking-widest uppercase font-medium">
-            Adversarial Search · Minimax Reasoning · Probabilistic Belief
+          <p className="text-center text-slate-500 text-[10px] sm:text-xs tracking-widest uppercase font-medium">
+            Adversarial Search · Minimax · Probabilistic Belief
           </p>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-20 pt-8">
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-20 pt-4 md:pt-8">
         <TopicInput onStart={handleStart} loading={isStarting} />
 
         {/* Error */}
@@ -269,7 +269,7 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={isSubmitting || !userText.trim()}
-                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-2 rounded-xl font-semibold transition text-sm"
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 py-3 min-h-[44px] rounded-xl font-semibold transition text-sm"
                 >
                   {isSubmitting ? "Submitting…" : "Submit Move →"}
                 </button>

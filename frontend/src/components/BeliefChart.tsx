@@ -136,8 +136,7 @@ export default function BeliefChart({
             <div className="relative rounded-xl border border-white/[0.06] bg-slate-900/60 overflow-hidden">
                 <svg
                     viewBox={`0 0 ${W} ${H}`}
-                    className="w-full"
-                    style={{ height: "160px" }}
+                    className="w-full h-[130px] sm:h-[160px]"
                     onMouseLeave={() => setHoveredIdx(null)}
                 >
                     <defs>
