@@ -10,12 +10,11 @@ import type {
   DebateState,
   SummaryPayload,
   StartResponse,
-  StateResponse,
   MoveResponse,
   StreamEvent,
 } from "./types";
 
-export type { DebateState, SummaryPayload, StartResponse, StateResponse, MoveResponse, StreamEvent };
+export type { DebateState, SummaryPayload, StartResponse, MoveResponse, StreamEvent };
 
 const rawEnvBase = import.meta.env.VITE_API_BASE_URL;
 let ENV_API_BASE = rawEnvBase ? `${rawEnvBase}`.replace(/\/$/, "") : null;
@@ -90,36 +89,6 @@ export async function startDebate(
   );
 }
 
-export function startDebateStream(
-  topic: string,
-  persona: string = "default",
-  maxRounds: number = 6,
-  onEvent: (event: StreamEvent) => void,
-  onError: (error: Error) => void,
-): () => void {
-  const base = getApiBases()[0];
-  const url = `${base}/stream?topic=${encodeURIComponent(topic)}&persona=${encodeURIComponent(persona)}&max_rounds=${maxRounds}`;
-  const source = new EventSource(url);
-
-  source.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data) as StreamEvent;
-      onEvent(data);
-      if (data.type === "done") {
-        source.close();
-      }
-    } catch (err) {
-      console.error("Failed to parse stream data", err);
-    }
-  };
-
-  source.onerror = () => {
-    source.close();
-    onError(new Error("Stream connection failed or closed unexpectedly"));
-  };
-
-  return () => source.close();
-}
 
 export function streamDebateTurn(
   debateId: string,
@@ -162,8 +131,8 @@ export async function submitDebateMove(debateId: string, text: string): Promise<
   );
 }
 
-export async function getState(debateId: string): Promise<StateResponse> {
-  return fetchJson<StateResponse>(`/state/${debateId}`, {}, "Failed to get state");
+export async function getState(debateId: string): Promise<{ state: DebateState; summary: SummaryPayload }> {
+  return fetchJson<{ state: DebateState; summary: SummaryPayload }>(`/state/${debateId}`, {}, "Failed to get state");
 }
 
 export async function getSummary(debateId: string, overrideAudience: number | null = null): Promise<SummaryPayload> {

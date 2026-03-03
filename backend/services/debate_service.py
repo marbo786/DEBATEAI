@@ -9,7 +9,7 @@ from typing import Callable, Awaitable, AsyncGenerator
 try:
     from backend.domain.belief import BeliefModel
     from backend.domain.minimax import MinimaxAgent
-    from backend.domain.reasoning import ArgumentGenerator, parse_user_argument
+    from backend.domain.reasoning import ArgumentGenerator
     from backend.domain.state import DebateState, RoundRecord, Side, Argument, Persona
     from backend.infra.models import DebateRecord, RoundRecordModel
     from backend.infra.groq_client import generate_debate_arguments
@@ -19,7 +19,7 @@ try:
 except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from domain.belief import BeliefModel
     from domain.minimax import MinimaxAgent
-    from domain.reasoning import ArgumentGenerator, parse_user_argument
+    from domain.reasoning import ArgumentGenerator
     from domain.state import DebateState, RoundRecord, Side, Argument, Persona
     from infra.models import DebateRecord, RoundRecordModel
     from infra.groq_client import generate_debate_arguments
