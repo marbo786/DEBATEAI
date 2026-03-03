@@ -1,6 +1,11 @@
 /**
  * BeliefChart — pure SVG animated belief trajectory chart.
  * No chart library required. Uses framer-motion for draw animation.
+ *
+ * Fixes applied:
+ * - Hover tooltip shows "R1 PRO" / "R2 CON" not raw move index
+ * - Turning point marker draws at the EXACT move with biggest swing
+ *   (not always the CON move at end of round)
  */
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,7 +28,6 @@ function toX(i: number, total: number): number {
 
 function toY(belief: number): number {
     const innerH = H - PAD.top - PAD.bottom;
-    // belief=1 → top, belief=0 → bottom
     return PAD.top + (1 - belief) * innerH;
 }
 
@@ -56,6 +60,19 @@ function makeAreaPath(points: Array<[number, number]>): string {
     return d;
 }
 
+/**
+ * Given a belief_history index, return a human-readable label.
+ * Index 0 = "Prior" (before any move).
+ * Odd indices = PRO's turns, even indices (≥2) = CON's turns.
+ * Round = ceil(idx / 2).
+ */
+function moveLabel(idx: number): string {
+    if (idx === 0) return "Prior";
+    const round = Math.ceil(idx / 2);
+    const side = idx % 2 === 1 ? "PRO" : "CON";
+    return `R${round} ${side}`;
+}
+
 export default function BeliefChart({
     beliefHistory,
     maxRounds,
@@ -63,6 +80,29 @@ export default function BeliefChart({
     className = "",
 }: BeliefChartProps) {
     const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+    /**
+     * Find the EXACT move index (within the turning point round) with the
+     * largest single-move belief swing.
+     * This is more precise than always drawing at `turningPointRound * 2`
+     * (which picks the CON move regardless of which move caused the swing).
+     */
+    const turningPointMoveIdx = useMemo<number | null>(() => {
+        if (!turningPointRound || !beliefHistory || beliefHistory.length < 2) return null;
+        // Moves in round N are at belief_history indices: (N-1)*2+1 (PRO) and N*2 (CON)
+        const startIdx = (turningPointRound - 1) * 2 + 1;
+        const endIdx = Math.min(turningPointRound * 2, beliefHistory.length - 1);
+        let maxSwing = 0;
+        let bestIdx: number | null = null;
+        for (let i = startIdx; i <= endIdx; i++) {
+            const swing = Math.abs(beliefHistory[i] - beliefHistory[i - 1]);
+            if (swing > maxSwing) {
+                maxSwing = swing;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }, [turningPointRound, beliefHistory]);
 
     const points = useMemo<Array<[number, number]>>(() => {
         if (!beliefHistory || beliefHistory.length < 2) return [];
@@ -73,16 +113,13 @@ export default function BeliefChart({
     const areaPath = useMemo(() => makeAreaPath(points), [points]);
 
     const midY = toY(0.5);
-    const innerW = W - PAD.left - PAD.right;
     const innerH = H - PAD.top - PAD.bottom;
 
-    // Round labels on X-axis: show round numbers, not move numbers
+    // X-axis labels: one per completed debate round (every 2 moves)
     const roundLabels = useMemo(() => {
         const rounds: Array<{ label: string; x: number }> = [];
         const n = beliefHistory.length;
         if (n < 2) return rounds;
-        // beliefHistory[0] = prior, [1] = after move 1 (round 1 PRO), [2] = after move 2 (round 1 CON)...
-        // Show a label at every 2 moves (= 1 debate round)
         for (let i = 2; i < n; i += 2) {
             const roundNum = i / 2;
             rounds.push({ label: `R${roundNum}`, x: toX(i, n) });
@@ -108,25 +145,20 @@ export default function BeliefChart({
                     onMouseLeave={() => setHoveredIdx(null)}
                 >
                     <defs>
-                        {/* Pro area gradient */}
                         <linearGradient id="proGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
                             <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
                         </linearGradient>
-                        {/* Con area gradient */}
                         <linearGradient id="conGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.02" />
                             <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.3" />
                         </linearGradient>
-                        {/* Clip above midline for pro fill */}
                         <clipPath id="aboveMid">
                             <rect x="0" y="0" width={W} height={midY} />
                         </clipPath>
-                        {/* Clip below midline for con fill */}
                         <clipPath id="belowMid">
                             <rect x="0" y={midY} width={W} height={H - midY} />
                         </clipPath>
-                        {/* Line gradient — pro or con color based on current leader */}
                         <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
                             <stop offset="0%" stopColor={isProLeading ? "#34d399" : "#fb7185"} stopOpacity="0.6" />
                             <stop offset="100%" stopColor={isProLeading ? "#10b981" : "#f43f5e"} />
@@ -148,23 +180,21 @@ export default function BeliefChart({
                         );
                     })}
 
-                    {/* Turning point vertical marker */}
-                    {turningPointRound && (() => {
-                        const tpMoveIdx = turningPointRound * 2;
-                        if (tpMoveIdx >= beliefHistory.length) return null;
-                        const x = toX(tpMoveIdx, beliefHistory.length);
-                        return (
-                            <line
-                                x1={x} y1={PAD.top} x2={x} y2={H - PAD.bottom}
-                                stroke="#f59e0b"
-                                strokeWidth={1}
-                                strokeDasharray="4 3"
-                                opacity={0.5}
-                            />
-                        );
-                    })()}
+                    {/* Turning point vertical marker — at the EXACT move with the biggest swing */}
+                    {turningPointMoveIdx !== null && turningPointMoveIdx < points.length && (
+                        <line
+                            x1={points[turningPointMoveIdx][0]}
+                            y1={PAD.top}
+                            x2={points[turningPointMoveIdx][0]}
+                            y2={H - PAD.bottom}
+                            stroke="#f59e0b"
+                            strokeWidth={1.5}
+                            strokeDasharray="4 3"
+                            opacity={0.6}
+                        />
+                    )}
 
-                    {/* Area fill — above midline (pro) */}
+                    {/* Area fill — above midline (pro territory) */}
                     <motion.path
                         d={areaPath}
                         fill="url(#proGrad)"
@@ -173,7 +203,7 @@ export default function BeliefChart({
                         animate={{ opacity: 1 }}
                         transition={{ duration: 0.6, delay: 0.3 }}
                     />
-                    {/* Area fill — below midline (con) */}
+                    {/* Area fill — below midline (con territory) */}
                     <motion.path
                         d={areaPath}
                         fill="url(#conGrad)"
@@ -183,8 +213,9 @@ export default function BeliefChart({
                         transition={{ duration: 0.6, delay: 0.3 }}
                     />
 
-                    {/* Animated line */}
+                    {/* Animated bezier line — re-animates when new point added */}
                     <motion.path
+                        key={beliefHistory.length}
                         d={linePath}
                         fill="none"
                         stroke="url(#lineGrad)"
@@ -194,23 +225,11 @@ export default function BeliefChart({
                         initial={{ pathLength: 0, opacity: 0 }}
                         animate={{ pathLength: 1, opacity: 1 }}
                         transition={{ duration: 0.8, ease: "easeOut" }}
-                        key={beliefHistory.length}  // re-animate when new points added
                     />
 
                     {/* Y-axis labels */}
-                    {[
-                        { v: 1, label: "100%" },
-                        { v: 0.5, label: "50%" },
-                        { v: 0, label: "0%" },
-                    ].map(({ v, label }) => (
-                        <text
-                            key={v}
-                            x={PAD.left - 4}
-                            y={toY(v) + 4}
-                            textAnchor="end"
-                            fontSize="9"
-                            fill="#475569"
-                        >
+                    {[{ v: 1, label: "100%" }, { v: 0.5, label: "50%" }, { v: 0, label: "0%" }].map(({ v, label }) => (
+                        <text key={v} x={PAD.left - 4} y={toY(v) + 4} textAnchor="end" fontSize="9" fill="#475569">
                             {label}
                         </text>
                     ))}
@@ -229,26 +248,30 @@ export default function BeliefChart({
                         </text>
                     ))}
 
-                    {/* Interactive hover dots */}
+                    {/* Hover interaction layer + dots */}
                     {points.map(([x, y], i) => {
                         const isHovered = hoveredIdx === i;
                         const belief = beliefHistory[i];
-                        const roundNum = i === 0 ? "Start" : `Move ${i}`;
+                        // Turning point dot gets amber highlight
+                        const isTurningPt = i === turningPointMoveIdx;
                         return (
                             <g key={i}>
-                                {/* Large invisible hover target */}
                                 <rect
                                     x={x - 12} y={PAD.top} width={24} height={innerH}
                                     fill="transparent"
                                     onMouseEnter={() => setHoveredIdx(i)}
                                 />
-                                {/* Visible dot */}
                                 <motion.circle
-                                    cx={x} cy={y} r={isHovered ? 5 : 3}
-                                    fill={belief > 0.5 ? "#10b981" : belief < 0.5 ? "#f43f5e" : "#94a3b8"}
+                                    cx={x} cy={y}
+                                    r={isHovered ? 5 : isTurningPt ? 4 : 3}
+                                    fill={isTurningPt && !isHovered
+                                        ? "#f59e0b"
+                                        : belief > 0.5 ? "#10b981"
+                                            : belief < 0.5 ? "#f43f5e"
+                                                : "#94a3b8"}
                                     stroke={isHovered ? "white" : "transparent"}
                                     strokeWidth={1.5}
-                                    animate={{ r: isHovered ? 5 : 3 }}
+                                    animate={{ r: isHovered ? 5 : isTurningPt ? 4 : 3 }}
                                     transition={{ duration: 0.15 }}
                                 />
                             </g>
@@ -260,8 +283,7 @@ export default function BeliefChart({
                         {hoveredIdx !== null && (() => {
                             const [x, y] = points[hoveredIdx];
                             const belief = beliefHistory[hoveredIdx];
-                            const isStart = hoveredIdx === 0;
-                            const roundLabel = isStart ? "Prior" : `Move ${hoveredIdx}`;
+                            const label = moveLabel(hoveredIdx);
                             const pct = Math.round(belief * 100);
                             const tooltipX = x > W - 90 ? x - 80 : x + 8;
                             return (
@@ -280,9 +302,12 @@ export default function BeliefChart({
                                         strokeWidth={0.8}
                                     />
                                     <text x={tooltipX + 6} y={y - 8} fontSize="9" fill="#94a3b8">
-                                        {roundLabel}
+                                        {label}
                                     </text>
-                                    <text x={tooltipX + 46} y={y - 8} fontSize="9" fontWeight="bold"
+                                    <text
+                                        x={tooltipX + 66} y={y - 8}
+                                        fontSize="9"
+                                        fontWeight="bold"
                                         fill={belief > 0.5 ? "#34d399" : belief < 0.5 ? "#fb7185" : "#94a3b8"}
                                         textAnchor="end"
                                     >
@@ -302,10 +327,10 @@ export default function BeliefChart({
                     <span className="flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full bg-rose-500 opacity-80" /> Con
                     </span>
-                    {turningPointRound && (
+                    {turningPointMoveIdx !== null && (
                         <span className="flex items-center gap-1">
-                            <span className="w-2 h-px bg-amber-400 opacity-70" style={{ display: "inline-block", height: "2px", width: "12px" }} />
-                            Turning Pt
+                            <span className="inline-block w-3 bg-amber-400 opacity-70" style={{ height: "2px" }} />
+                            {moveLabel(turningPointMoveIdx)}
                         </span>
                     )}
                 </div>
