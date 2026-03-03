@@ -88,41 +88,7 @@ class ArgumentGenerator:
         self._rng.shuffle(args)
         return args[:count]
 
-    async def parse_user_argument(self, text: str) -> Argument:
-        prompt = f"""
-Analyze the following human debate argument and extract its logical components.
-Return strictly a JSON object with this schema:
-{{
-  "claim": "The main point being made (concise)",
-  "premises": ["Premise 1", "Premise 2"],
-  "inference": "How the premises lead to the claim",
-  "strength": <float 0.0-1.0 representing logical coherence>,
-  "reasoning_type": "causal", "deductive", "inductive", etc.
-}}
 
-Argument: "{text}"
-"""
-        import json
-        import math
-        try:
-            response_text = await self.llm_client.generate_completion(prompt)
-            data = json.loads(response_text)
-            return Argument(
-                claim=data.get("claim", text),
-                premises=data.get("premises", []),
-                inference=data.get("inference", ""),
-                strength=float(data.get("strength", 0.5)),
-                reasoning_type=data.get("reasoning_type", "informal")
-            )
-        except Exception as e:
-            # Fallback if parsing fails
-            return Argument(
-                claim=text,
-                premises=[],
-                inference="User provided argument",
-                strength=0.5,
-                reasoning_type="informal"
-            )
 
     def _rebuttal_argument(
         self,
@@ -454,3 +420,73 @@ Argument: "{text}"
             )
 
         return out
+
+
+async def parse_user_argument(
+    text: str,
+    groq_completion=None,
+) -> Argument:
+    """
+    Parse a raw user argument string into a structured Argument.
+
+    If `groq_completion` is an async callable (e.g. groq_client.generate_completion),
+    it is used to semantically extract claim / premises / strength via LLM.
+    Without it, a sensible fallback Argument is returned immediately.
+
+    Args:
+        text: Raw user-submitted argument text.
+        groq_completion: Optional async callable(prompt: str) -> str | None.
+
+    Returns:
+        Structured Argument with claim, premises, inference, strength, reasoning_type.
+    """
+    import json as _json
+
+    prompt = f"""Analyze the following debate argument and extract its logical structure.
+Return ONLY a valid JSON object — no markdown, no code fences — with these exact keys:
+{{
+  "claim": "The core point being made (one concise sentence)",
+  "premises": ["Supporting premise 1", "Supporting premise 2"],
+  "inference": "Brief explanation of how premises lead to the claim",
+  "strength": <float 0.0-1.0 expressing logical coherence and persuasive quality>,
+  "reasoning_type": "causal" | "ethical" | "risk" | "tradeoff" | "deductive" | "inductive" | "rebuttal"
+}}
+
+Argument to analyze:
+\"{text}\"
+"""
+
+    if groq_completion is not None:
+        try:
+            raw = await groq_completion(prompt)
+            if raw:
+                # Strip any accidental markdown fences
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                data = _json.loads(raw)
+                strength = max(0.0, min(1.0, float(data.get("strength", 0.5))))
+                return Argument(
+                    claim=str(data.get("claim") or text)[:300],
+                    premises=[str(p) for p in (data.get("premises") or [])[:4]],
+                    inference=str(data.get("inference") or "User argument parsed by AI."),
+                    strength=strength,
+                    reasoning_type=str(data.get("reasoning_type") or "informal"),
+                )
+        except Exception:
+            pass  # Fall through to cheap fallback
+
+    # Fallback: construct a minimal but valid Argument from the raw text
+    words = text.split()
+    # Heuristic strength: longer, punctuated arguments score slightly higher
+    has_because = any(w.lower() in ("because", "since", "therefore", "however", "although") for w in words)
+    strength = min(0.75, 0.35 + (len(words) / 200) + (0.1 if has_because else 0.0))
+    return Argument(
+        claim=text[:300] if len(text) <= 300 else text[:297] + "...",
+        premises=["User-provided reasoning."],
+        inference="Argument submitted directly by the user.",
+        strength=round(strength, 3),
+        reasoning_type="informal",
+    )

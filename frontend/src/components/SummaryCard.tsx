@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import html2canvas from "html2canvas";
+import type { SummaryPayload, DebateState } from "../types";
 
 export interface SummaryCardProps {
-  summary: any;
-  state: any;
+  summary: SummaryPayload;
+  state: DebateState;
   onOverride: (value: number | null) => Promise<boolean>;
 }
 
@@ -35,7 +36,7 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
   const [previewOverride, setPreviewOverride] = useState<number | null>(null);
   const [isOverrideLoading, setIsOverrideLoading] = useState(false);
 
-  const s = summary ?? {};
+  const s = summary;
 
   useEffect(() => {
     setPreviewOverride(null);
@@ -121,10 +122,10 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
               <p className="text-xs font-bold tracking-widest text-slate-600 uppercase mb-1">Winner</p>
               <p
                 className={`font-extrabold text-3xl tracking-tight ${winner === "Pro"
-                    ? "text-emerald-400"
-                    : winner === "Con"
-                      ? "text-rose-400"
-                      : "text-slate-400"
+                  ? "text-emerald-400"
+                  : winner === "Con"
+                    ? "text-rose-400"
+                    : "text-slate-400"
                   }`}
               >
                 {winner}

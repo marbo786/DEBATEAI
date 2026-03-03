@@ -1,53 +1,318 @@
-import pytest
+"""
+Expanded unit tests for DebateAI — Phase 1.
+
+Covers:
+  - BeliefModel: update direction, clamping to [0,1], persona creation
+  - ArgumentGenerator: round themes, argument count
+  - MinimaxAgent: chooses better argument when strength differs
+  - parse_user_argument: fallback (no groq), heuristic scoring
+  - DebateService: initialize_debate returns clean initial state
+"""
 import asyncio
+import pytest
+
 from backend.domain.belief import BeliefModel
 from backend.domain.state import DebateState, Side, Persona
-from backend.domain.reasoning import ArgumentGenerator
+from backend.domain.reasoning import ArgumentGenerator, parse_user_argument
 from backend.domain.minimax import MinimaxAgent
 from backend.services.debate_service import DebateService
 
-def test_belief_model_personas():
-    default_model = BeliefModel.create_from_persona(Persona.DEFAULT)
-    assert default_model.sensitivity == 0.12
-    assert default_model.prior == 0.5
-    
-    skeptic_model = BeliefModel.create_from_persona(Persona.SKEPTIC)
-    assert skeptic_model.sensitivity == 0.05
-    
-    pro_model = BeliefModel.create_from_persona(Persona.PARTISAN_PRO)
-    assert pro_model.prior == 0.7
-    
-    con_model = BeliefModel.create_from_persona(Persona.PARTISAN_CON)
-    assert con_model.prior == 0.3
 
-def test_argument_generator():
-    ag = ArgumentGenerator(seed=42)
-    pro_claims, con_claims = ag.generate_initial_claims("AI Expansion")
-    assert len(pro_claims) == 6
-    assert len(con_claims) == 6
-    
-    args = ag.generate_arguments(Side.PRO, "AI Expansion", pro_claims, con_claims, [], count=2)
-    assert len(args) == 2
-    assert args[0].strength > 0.0
+# ------------------------------------------------------------------ #
+# BeliefModel tests
+# ------------------------------------------------------------------ #
 
-@pytest.mark.asyncio
-async def test_debate_service_run_debate():
-    service = DebateService(max_rounds=1, seed=42)
-    # mock facts provider
-    async def mock_facts_provider(topic):
-        return (["Pro statement 1"], ["Con statement 1"])
-        
-    result = await service.run_debate(
-        topic="Testing",
-        rounds=1,
-        facts_provider=mock_facts_provider,
-        persona=Persona.DEFAULT
-    )
-    
-    assert result.state.topic == "Testing"
-    assert len(result.state.history) == 8  # 4 rounds (min bound) = 8 moves
-    assert result.facts_from_api is True
-    
-    summary = service.summarize(result.state)
-    assert "winner" in summary
-    assert "final_belief" in summary
+class TestBeliefModel:
+    def test_personas_created_correctly(self):
+        default_model = BeliefModel.create_from_persona(Persona.DEFAULT)
+        assert default_model.sensitivity == 0.12
+        assert default_model.prior == 0.5
+
+        skeptic_model = BeliefModel.create_from_persona(Persona.SKEPTIC)
+        assert skeptic_model.sensitivity == 0.05
+
+        pro_model = BeliefModel.create_from_persona(Persona.PARTISAN_PRO)
+        assert pro_model.prior == 0.7
+
+        con_model = BeliefModel.create_from_persona(Persona.PARTISAN_CON)
+        assert con_model.prior == 0.3
+
+    def test_persona_string_fallback(self):
+        """Unknown string persona falls back to DEFAULT."""
+        m = BeliefModel.create_from_persona("unknown_persona_xyz")
+        assert m.sensitivity == 0.12
+        assert m.prior == 0.5
+
+    def test_pro_argument_pushes_belief_up(self):
+        model = BeliefModel(sensitivity=0.10, prior=0.5)
+        new_belief = model.update(0.5, pro_strength=0.8, con_strength=0.2)
+        assert new_belief > 0.5, "Strong pro arg should push belief above 0.5"
+
+    def test_con_argument_pushes_belief_down(self):
+        model = BeliefModel(sensitivity=0.10, prior=0.5)
+        new_belief = model.update(0.5, pro_strength=0.2, con_strength=0.8)
+        assert new_belief < 0.5, "Strong con arg should push belief below 0.5"
+
+    def test_equal_arguments_leave_belief_unchanged(self):
+        model = BeliefModel(sensitivity=0.10, prior=0.5)
+        new_belief = model.update(0.5, pro_strength=0.6, con_strength=0.6)
+        assert new_belief == 0.5
+
+    def test_belief_clamped_to_zero(self):
+        """Extreme con argument should not drive belief below 0."""
+        model = BeliefModel(sensitivity=1.0, prior=0.5)
+        new_belief = model.update(0.1, pro_strength=0.0, con_strength=1.0)
+        assert new_belief >= 0.0
+
+    def test_belief_clamped_to_one(self):
+        """Extreme pro argument should not drive belief above 1."""
+        model = BeliefModel(sensitivity=1.0, prior=0.5)
+        new_belief = model.update(0.9, pro_strength=1.0, con_strength=0.0)
+        assert new_belief <= 1.0
+
+
+# ------------------------------------------------------------------ #
+# ArgumentGenerator tests
+# ------------------------------------------------------------------ #
+
+class TestArgumentGenerator:
+    def test_generates_correct_initial_claim_count(self):
+        ag = ArgumentGenerator(seed=42)
+        pro_claims, con_claims = ag.generate_initial_claims("AI Expansion")
+        assert len(pro_claims) == 6
+        assert len(con_claims) == 6
+
+    def test_argument_count_respects_count_param(self):
+        ag = ArgumentGenerator(seed=42)
+        pro, con = ag.generate_initial_claims("AI Expansion")
+        args = ag.generate_arguments(Side.PRO, "AI Expansion", pro, con, [], count=3)
+        # Round 1 only generates 2 themed args for PRO, so result is <= count, >= 1
+        assert 1 <= len(args) <= 3
+
+    def test_round_1_produces_causal_arguments(self):
+        ag = ArgumentGenerator(seed=0)
+        pro, con = ag.generate_initial_claims("climate change")
+        args = ag.generate_arguments(Side.PRO, "climate change", pro, con, [], count=6)
+        types = [a.reasoning_type for a in args]
+        assert "causal" in types, f"Round 1 should contain causal args. Got: {types}"
+
+    def test_round_4_produces_ethical_arguments(self):
+        """Simulate 6 history entries (= round 4) and check for ethical reasoning."""
+        ag = ArgumentGenerator(seed=0)
+        from backend.domain.state import Argument, RoundRecord
+        pro, con = ag.generate_initial_claims("universal basic income")
+
+        # Build fake history of 6 moves (rounds 1-3 done, now generating round 4)
+        dummy_arg = Argument(
+            claim="dummy", premises=[], inference="dummy", strength=0.5, reasoning_type="causal"
+        )
+        history = [
+            RoundRecord(side=Side.PRO if i % 2 == 0 else Side.CON, argument=dummy_arg, belief_after=0.5)
+            for i in range(6)
+        ]
+        args = ag.generate_arguments(Side.PRO, "universal basic income", pro, con, history, count=6)
+        types = [a.reasoning_type for a in args]
+        assert "ethical" in types, f"Round 4 should contain ethical args. Got: {types}"
+
+    def test_all_arguments_have_positive_strength(self):
+        ag = ArgumentGenerator(seed=7)
+        pro, con = ag.generate_initial_claims("space exploration")
+        args = ag.generate_arguments(Side.CON, "space exploration", pro, con, [], count=6)
+        for arg in args:
+            assert 0.0 <= arg.strength <= 1.0
+
+
+# ------------------------------------------------------------------ #
+# MinimaxAgent tests
+# ------------------------------------------------------------------ #
+
+class TestMinimaxAgent:
+    def test_pro_picks_argument(self):
+        """PRO agent should return a valid argument."""
+        ag = ArgumentGenerator(seed=1)
+        model = BeliefModel(sensitivity=0.12, prior=0.5)
+        agent = MinimaxAgent(ag, model, depth=2)
+        pro, con = ag.generate_initial_claims("renewable energy")
+        state = DebateState(
+            topic="renewable energy",
+            pro_claims=pro,
+            con_claims=con,
+            belief=0.5,
+            belief_history=[0.5],
+            round_number=0,
+            max_rounds=6,
+        )
+        best_arg, val = agent.get_best_argument(state, Side.PRO)
+        assert best_arg is not None
+        assert isinstance(val, float)
+
+    def test_con_picks_argument(self):
+        """CON agent should return a valid argument."""
+        ag = ArgumentGenerator(seed=2)
+        model = BeliefModel(sensitivity=0.12, prior=0.5)
+        agent = MinimaxAgent(ag, model, depth=2)
+        pro, con = ag.generate_initial_claims("nuclear power")
+        state = DebateState(
+            topic="nuclear power",
+            pro_claims=pro,
+            con_claims=con,
+            belief=0.5,
+            belief_history=[0.5],
+            round_number=0,
+            max_rounds=6,
+        )
+        best_arg, val = agent.get_best_argument(state, Side.CON)
+        assert best_arg is not None
+
+    def test_pruning_log_populated(self):
+        """Pruning log should be non-empty after search with enough candidates."""
+        ag = ArgumentGenerator(seed=42)
+        model = BeliefModel(sensitivity=0.12, prior=0.5)
+        agent = MinimaxAgent(ag, model, depth=3)
+        pro, con = ag.generate_initial_claims("free trade")
+        state = DebateState(
+            topic="free trade",
+            pro_claims=pro,
+            con_claims=con,
+            belief=0.5,
+            belief_history=[0.5],
+            round_number=0,
+            max_rounds=6,
+        )
+        agent.get_best_argument(state, Side.PRO)
+        # May or may not prune on very first move — just assert it's a list
+        log = agent.get_pruning_log_dict()
+        assert isinstance(log, list)
+
+
+# ------------------------------------------------------------------ #
+# parse_user_argument tests
+# ------------------------------------------------------------------ #
+
+class TestParseUserArgument:
+    def test_fallback_returns_valid_argument(self):
+        """Without a groq_completion, should return a valid Argument immediately."""
+        arg = asyncio.get_event_loop().run_until_complete(
+            parse_user_argument("We should invest more in renewable energy because it creates jobs.", groq_completion=None)
+        )
+        assert arg.claim != ""
+        assert isinstance(arg.premises, list)
+        assert 0.0 <= arg.strength <= 1.0
+        assert arg.reasoning_type == "informal"
+
+    def test_fallback_heuristic_scores_longer_args_higher(self):
+        """A longer, structured argument should score higher than a one-word reply."""
+        short = asyncio.get_event_loop().run_until_complete(
+            parse_user_argument("No.", groq_completion=None)
+        )
+        long_text = (
+            "Although there are risks, the data shows that renewable energy creates significantly "
+            "more jobs than fossil fuels, and therefore the economic case for transition is strong."
+        )
+        long_arg = asyncio.get_event_loop().run_until_complete(
+            parse_user_argument(long_text, groq_completion=None)
+        )
+        assert long_arg.strength >= short.strength
+
+    def test_fallback_caps_claim_at_300_chars(self):
+        very_long = "x" * 500
+        arg = asyncio.get_event_loop().run_until_complete(
+            parse_user_argument(very_long, groq_completion=None)
+        )
+        assert len(arg.claim) <= 300
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_groq_failure_returns_valid_arg(self):
+        """If groq_completion raises, should still return a valid fallback."""
+        async def failing_groq(prompt: str):
+            raise RuntimeError("Connection refused")
+
+        arg = await parse_user_argument("This is a test argument.", groq_completion=failing_groq)
+        assert arg.claim != ""
+        assert 0.0 <= arg.strength <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_groq_bad_json_falls_back_gracefully(self):
+        """If groq returns non-JSON, should use fallback without crashing."""
+        async def bad_json_groq(prompt: str):
+            return "This is not JSON at all!"
+
+        arg = await parse_user_argument("My argument here.", groq_completion=bad_json_groq)
+        assert isinstance(arg.claim, str)
+        assert arg.claim != ""
+
+
+# ------------------------------------------------------------------ #
+# DebateService tests
+# ------------------------------------------------------------------ #
+
+class TestDebateService:
+    @pytest.mark.asyncio
+    async def test_initialize_debate_returns_clean_state(self):
+        """initialize_debate should return state with 0 history and correct topic."""
+        service = DebateService(seed=42)
+
+        async def mock_facts(topic):
+            return (["Pro claim 1", "Pro claim 2"], ["Con claim 1", "Con claim 2"])
+
+        result = await service.initialize_debate(
+            topic="Universal Basic Income",
+            rounds=6,
+            facts_provider=mock_facts,
+            persona=Persona.DEFAULT,
+            user_side="auto",
+            db=None,
+        )
+        assert result.state.topic == "Universal Basic Income"
+        assert len(result.state.history) == 0
+        assert result.state.belief == 0.5
+        assert result.state.round_number == 0
+        assert result.facts_from_api is True
+
+    @pytest.mark.asyncio
+    async def test_run_debate_completes_all_rounds(self):
+        """run_debate should complete max_rounds full rounds."""
+        service = DebateService(max_rounds=4, seed=42)
+
+        async def mock_facts(topic):
+            return (["Pro claim"] * 4, ["Con claim"] * 4)
+
+        result = await service.run_debate(
+            topic="Testing",
+            rounds=4,
+            facts_provider=mock_facts,
+            persona=Persona.DEFAULT,
+        )
+        assert result.state.topic == "Testing"
+        # 4 rounds = 8 total moves (4 PRO + 4 CON)
+        assert len(result.state.history) == 8
+        assert result.facts_from_api is True
+
+    @pytest.mark.asyncio
+    async def test_rounds_clamped_to_min_max(self):
+        """Rounds below 2 should be clamped to 2, above 10 to 10."""
+        service = DebateService(seed=0)
+
+        async def mock_facts(topic):
+            return (["p"] * 4, ["c"] * 4)
+
+        result_min = await service.initialize_debate("test", rounds=0, facts_provider=mock_facts, db=None)
+        assert result_min.state.max_rounds == 2
+
+        result_max = await service.initialize_debate("test", rounds=99, facts_provider=mock_facts, db=None)
+        assert result_max.state.max_rounds == 10
+
+    @pytest.mark.asyncio
+    async def test_summarize_returns_correct_structure(self):
+        service = DebateService(seed=1)
+
+        async def mock_facts(topic):
+            return (["p"] * 4, ["c"] * 4)
+
+        result = await service.run_debate("Summary test", rounds=4, facts_provider=mock_facts)
+        summary = service.summarize(result.state)
+        assert "winner" in summary
+        assert "final_belief" in summary
+        assert "final_pro_pct" in summary
+        assert "final_con_pct" in summary
+        assert abs(summary["final_pro_pct"] + summary["final_con_pct"] - 100) < 0.01

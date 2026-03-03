@@ -6,16 +6,23 @@
  * On hosted frontend, set `VITE_API_BASE_URL` to your backend origin.
  */
 
+import type {
+  DebateState,
+  SummaryPayload,
+  StartResponse,
+  StateResponse,
+  MoveResponse,
+  StreamEvent,
+} from "./types";
+
+export type { DebateState, SummaryPayload, StartResponse, StateResponse, MoveResponse, StreamEvent };
+
 const rawEnvBase = import.meta.env.VITE_API_BASE_URL;
-let ENV_API_BASE = rawEnvBase
-  ? `${rawEnvBase}`.replace(/\/$/, "")
-  : null;
+let ENV_API_BASE = rawEnvBase ? `${rawEnvBase}`.replace(/\/$/, "") : null;
 
 if (ENV_API_BASE && !ENV_API_BASE.startsWith("http")) {
   ENV_API_BASE = `https://${ENV_API_BASE}`;
 }
-
-console.log("[DebateAI] Configured API Base:", ENV_API_BASE || "Using fallback");
 
 function normalizeBase(base: string): string {
   return base.endsWith("/api") ? base : `${base}/api`;
@@ -34,10 +41,7 @@ function getApiBases(): string[] {
   return bases;
 }
 
-export type DebateStatePayload = any; // TODO: refine typing later if needed
-export type SummaryPayload = any;
-
-async function fetchJson(path: string, options: RequestInit = {}, defaultError = "Request failed"): Promise<any> {
+async function fetchJson<T>(path: string, options: RequestInit = {}, defaultError = "Request failed"): Promise<T> {
   const bases = getApiBases();
   let lastError: Error | null = null;
 
@@ -49,9 +53,9 @@ async function fetchJson(path: string, options: RequestInit = {}, defaultError =
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `${defaultError}: ${res.status}`);
       }
-      return await res.json();
-    } catch (error: any) {
-      lastError = error;
+      return (await res.json()) as T;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
       // Try next base only for network-level failures.
       if (!(error instanceof TypeError)) {
         break;
@@ -73,9 +77,9 @@ export async function startDebate(
   topic: string,
   maxRounds: number = 6,
   persona: string = "default",
-  userSide: string = "auto"
-): Promise<{ debate_id: string, state: DebateStatePayload, summary: SummaryPayload, facts_from_api: boolean, pruning_logs: any[] }> {
-  return fetchJson(
+  userSide: string = "auto",
+): Promise<StartResponse> {
+  return fetchJson<StartResponse>(
     "/start",
     {
       method: "POST",
@@ -90,8 +94,8 @@ export function startDebateStream(
   topic: string,
   persona: string = "default",
   maxRounds: number = 6,
-  onEvent: (event: any) => void,
-  onError: (error: Error) => void
+  onEvent: (event: StreamEvent) => void,
+  onError: (error: Error) => void,
 ): () => void {
   const base = getApiBases()[0];
   const url = `${base}/stream?topic=${encodeURIComponent(topic)}&persona=${encodeURIComponent(persona)}&max_rounds=${maxRounds}`;
@@ -99,7 +103,7 @@ export function startDebateStream(
 
   source.onmessage = (e) => {
     try {
-      const data = JSON.parse(e.data);
+      const data = JSON.parse(e.data) as StreamEvent;
       onEvent(data);
       if (data.type === "done") {
         source.close();
@@ -109,7 +113,7 @@ export function startDebateStream(
     }
   };
 
-  source.onerror = (e) => {
+  source.onerror = () => {
     source.close();
     onError(new Error("Stream connection failed or closed unexpectedly"));
   };
@@ -119,8 +123,8 @@ export function startDebateStream(
 
 export function streamDebateTurn(
   debateId: string,
-  onEvent: (event: any) => void,
-  onError: (error: Error) => void
+  onEvent: (event: StreamEvent) => void,
+  onError: (error: Error) => void,
 ): () => void {
   const base = getApiBases()[0];
   const url = `${base}/debate/${debateId}/stream_turn`;
@@ -128,7 +132,7 @@ export function streamDebateTurn(
 
   source.onmessage = (e) => {
     try {
-      const data = JSON.parse(e.data);
+      const data = JSON.parse(e.data) as StreamEvent;
       onEvent(data);
       if (data.type === "done" || data.type === "turn_complete" || data.type === "waiting_for_user") {
         source.close();
@@ -138,7 +142,7 @@ export function streamDebateTurn(
     }
   };
 
-  source.onerror = (e) => {
+  source.onerror = () => {
     source.close();
     onError(new Error("Stream connection failed or closed unexpectedly"));
   };
@@ -146,20 +150,20 @@ export function streamDebateTurn(
   return () => source.close();
 }
 
-export async function submitDebateMove(debateId: string, text: string): Promise<{ state: DebateStatePayload, summary: SummaryPayload }> {
-  return fetchJson(
+export async function submitDebateMove(debateId: string, text: string): Promise<MoveResponse> {
+  return fetchJson<MoveResponse>(
     `/debate/${debateId}/move`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     },
-    "Failed to submit move"
+    "Failed to submit move",
   );
 }
 
-export async function getState(debateId: string): Promise<{ state: DebateStatePayload, summary: SummaryPayload }> {
-  return fetchJson(`/state/${debateId}`, {}, "Failed to get state");
+export async function getState(debateId: string): Promise<StateResponse> {
+  return fetchJson<StateResponse>(`/state/${debateId}`, {}, "Failed to get state");
 }
 
 export async function getSummary(debateId: string, overrideAudience: number | null = null): Promise<SummaryPayload> {
@@ -172,5 +176,5 @@ export async function getSummary(debateId: string, overrideAudience: number | nu
       }
       : {};
 
-  return fetchJson(`/summary/${debateId}`, options, "Failed to get summary");
+  return fetchJson<SummaryPayload>(`/summary/${debateId}`, options, "Failed to get summary");
 }

@@ -9,7 +9,7 @@ from typing import Callable, Awaitable, AsyncGenerator
 try:
     from backend.domain.belief import BeliefModel
     from backend.domain.minimax import MinimaxAgent
-    from backend.domain.reasoning import ArgumentGenerator
+    from backend.domain.reasoning import ArgumentGenerator, parse_user_argument
     from backend.domain.state import DebateState, RoundRecord, Side, Argument, Persona
     from backend.infra.models import DebateRecord, RoundRecordModel
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ try:
 except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from domain.belief import BeliefModel
     from domain.minimax import MinimaxAgent
-    from domain.reasoning import ArgumentGenerator
+    from domain.reasoning import ArgumentGenerator, parse_user_argument
     from domain.state import DebateState, RoundRecord, Side, Argument, Persona
     from infra.models import DebateRecord, RoundRecordModel
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,9 @@ except ModuleNotFoundError:  # Vercel backend project rooted at /backend
     from sqlalchemy.orm import selectinload
 
 FactsProvider = Callable[[str], Awaitable[tuple[list[str], list[str]] | None]]
+
+MIN_ROUNDS = 2
+MAX_ROUNDS = 10
 
 
 @dataclass
@@ -93,17 +96,31 @@ class DebateService:
         state.turning_point_round = self._turning_point(state)
         return state
 
-    async def initialize_debate(
+    # ------------------------------------------------------------------ #
+    #  Shared initialization helper (DRY: used by all three run methods)  #
+    # ------------------------------------------------------------------ #
+
+    async def _create_debate_record(
         self,
         topic: str,
         rounds: int,
-        facts_provider: FactsProvider | None = None,
-        persona: Persona | str = Persona.DEFAULT,
-        user_side: str = "auto",
-        db: AsyncSession = None,
-    ) -> DebateResult:
+        facts_provider: FactsProvider | None,
+        persona: Persona | str,
+        user_side: str,
+        db: AsyncSession | None,
+    ) -> tuple[DebateState, DebateRecord | None, bool]:
+        """
+        Resolve facts, build an initial DebateState, and optionally persist a
+        DebateRecord to the database.
+
+        Returns:
+            (state, db_debate_record_or_None, facts_from_api_bool)
+        """
         self.belief_model = BeliefModel.create_from_persona(persona)
-        max_rounds = min(6, max(4, rounds))
+        self.minimax_pro = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+        self.minimax_con = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
+
+        max_rounds = max(MIN_ROUNDS, min(MAX_ROUNDS, rounds))
         api_facts = await facts_provider(topic) if facts_provider else None
         facts_from_api = bool(api_facts)
 
@@ -133,13 +150,29 @@ class DebateService:
                 pro_claims=pro_claims,
                 con_claims=con_claims,
                 max_rounds=max_rounds,
-                belief=self.belief_model.prior
+                belief=self.belief_model.prior,
             )
             db.add(db_debate)
             await db.commit()
             await db.refresh(db_debate)
             state.id = str(db_debate.id)
 
+        return state, db_debate, facts_from_api
+
+    # ------------------------------------------------------------------ #
+
+    async def initialize_debate(
+        self,
+        topic: str,
+        rounds: int,
+        facts_provider: FactsProvider | None = None,
+        persona: Persona | str = Persona.DEFAULT,
+        user_side: str = "auto",
+        db: AsyncSession = None,
+    ) -> DebateResult:
+        state, _, facts_from_api = await self._create_debate_record(
+            topic, rounds, facts_provider, persona, user_side, db
+        )
         return DebateResult(
             state=state,
             pruning_logs=[],
@@ -155,48 +188,12 @@ class DebateService:
         user_side: str = "auto",
         db: AsyncSession = None,
     ) -> DebateResult:
-        self.belief_model = BeliefModel.create_from_persona(persona)
-        self.minimax_pro = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
-        self.minimax_con = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
-        max_rounds = min(6, max(4, rounds))
-        api_facts = await facts_provider(topic) if facts_provider else None
-        facts_from_api = bool(api_facts)
-
-        if api_facts is not None:
-            pro_claims, con_claims = api_facts
-        else:
-            pro_claims, con_claims = self.arg_gen.generate_initial_claims(topic)
-
-        state = DebateState(
-            topic=topic,
-            user_side=user_side,
-            pro_claims=pro_claims,
-            con_claims=con_claims,
-            history=[],
-            belief=self.belief_model.prior,
-            belief_history=[self.belief_model.prior],
-            round_number=0,
-            max_rounds=max_rounds,
+        state, db_debate, facts_from_api = await self._create_debate_record(
+            topic, rounds, facts_provider, persona, user_side, db
         )
 
-        db_debate = None
-        if db:
-            db_debate = DebateRecord(
-                topic=topic,
-                persona=persona.value if isinstance(persona, Persona) else persona,
-                user_side=user_side,
-                pro_claims=pro_claims,
-                con_claims=con_claims,
-                max_rounds=max_rounds,
-                belief=self.belief_model.prior
-            )
-            db.add(db_debate)
-            await db.commit()
-            await db.refresh(db_debate)
-            state.id = str(db_debate.id)
-
         pruning_logs: list[dict] = []
-        for debate_round in range(max_rounds):
+        for debate_round in range(state.max_rounds):
             best_pro, _ = self.minimax_pro.get_best_argument(state, Side.PRO)
             if best_pro:
                 state = await self._apply(state, Side.PRO, best_pro, db, db_debate)
@@ -248,49 +245,13 @@ class DebateService:
         user_side: str = "auto",
         db: AsyncSession = None,
     ) -> AsyncGenerator[str, None]:
-        self.belief_model = BeliefModel.create_from_persona(persona)
-        self.minimax_pro = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
-        self.minimax_con = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
-        max_rounds = min(6, max(4, rounds))
-        api_facts = await facts_provider(topic) if facts_provider else None
-        facts_from_api = bool(api_facts)
-
-        if api_facts is not None:
-            pro_claims, con_claims = api_facts
-        else:
-            pro_claims, con_claims = self.arg_gen.generate_initial_claims(topic)
-
-        state = DebateState(
-            topic=topic,
-            user_side=user_side,
-            pro_claims=pro_claims,
-            con_claims=con_claims,
-            history=[],
-            belief=self.belief_model.prior,
-            belief_history=[self.belief_model.prior],
-            round_number=0,
-            max_rounds=max_rounds,
+        state, db_debate, facts_from_api = await self._create_debate_record(
+            topic, rounds, facts_provider, persona, user_side, db
         )
 
-        db_debate = None
-        if db:
-            db_debate = DebateRecord(
-                topic=topic,
-                persona=persona.value if isinstance(persona, Persona) else persona,
-                user_side=user_side,
-                pro_claims=pro_claims,
-                con_claims=con_claims,
-                max_rounds=max_rounds,
-                belief=self.belief_model.prior
-            )
-            db.add(db_debate)
-            await db.commit()
-            await db.refresh(db_debate)
-            state.id = str(db_debate.id)
-
         yield f"data: {json.dumps({'type': 'init', 'state': state.to_dict(), 'facts_from_api': facts_from_api})}\n\n"
-        
-        for debate_round in range(max_rounds):
+
+        for debate_round in range(state.max_rounds):
             await asyncio.sleep(0.5)
             best_pro, _ = self.minimax_pro.get_best_argument(state, Side.PRO)
             if best_pro:
@@ -298,7 +259,7 @@ class DebateService:
                 for word in words:
                     yield f"data: {json.dumps({'type': 'typing', 'side': 'pro', 'chunk': word + ' '})}\n\n"
                     await asyncio.sleep(0.04)
-                
+
                 state = await self._apply(state, Side.PRO, best_pro, db, db_debate)
                 yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
                 await asyncio.sleep(0.5)
@@ -313,7 +274,7 @@ class DebateService:
                 for word in words:
                     yield f"data: {json.dumps({'type': 'typing', 'side': 'con', 'chunk': word + ' '})}\n\n"
                     await asyncio.sleep(0.04)
-                
+
                 state = await self._apply(state, Side.CON, best_con, db, db_debate)
                 yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
                 await asyncio.sleep(0.5)
@@ -350,32 +311,32 @@ class DebateService:
         if (state.round_number // 2) >= state.max_rounds:
             yield f"data: {json.dumps({'type': 'done', 'state': state.to_dict(), 'summary': self.summarize(state)})}\n\n"
             return
-            
+
         is_pro_turn = (state.round_number % 2 == 0)
         current_side = Side.PRO if is_pro_turn else Side.CON
-        
+
         # Check if it's the user's turn
         if state.user_side == current_side.value:
             yield f"data: {json.dumps({'type': 'waiting_for_user', 'state': state.to_dict()})}\n\n"
             return
-            
+
         # AI's turn
         self.belief_model = BeliefModel.create_from_persona(db_debate.persona)
         agent = MinimaxAgent(self.arg_gen, self.belief_model, depth=3)
-        
+
         await asyncio.sleep(0.5)
         best_arg, _ = agent.get_best_argument(state, current_side)
-        
+
         if best_arg:
             words = best_arg.claim.split(" ")
             for word in words:
                 yield f"data: {json.dumps({'type': 'typing', 'side': current_side.value, 'chunk': word + ' '})}\n\n"
                 await asyncio.sleep(0.04)
-            
+
             state = await self._apply(state, current_side, best_arg, db, db_debate)
             yield f"data: {json.dumps({'type': 'move', 'state': state.to_dict()})}\n\n"
             await asyncio.sleep(0.5)
-            
+
             if (state.round_number // 2) >= state.max_rounds:
                 state.winner = self._winner(state)
                 state.turning_point_round = self._turning_point(state)
@@ -386,9 +347,9 @@ class DebateService:
             else:
                 next_side = Side.PRO if state.round_number % 2 == 0 else Side.CON
                 if state.user_side == next_side.value:
-                     yield f"data: {json.dumps({'type': 'waiting_for_user', 'state': state.to_dict()})}\n\n"
+                    yield f"data: {json.dumps({'type': 'waiting_for_user', 'state': state.to_dict()})}\n\n"
                 else:
-                     yield f"data: {json.dumps({'type': 'turn_complete', 'state': state.to_dict()})}\n\n"
+                    yield f"data: {json.dumps({'type': 'turn_complete', 'state': state.to_dict()})}\n\n"
 
     def summarize(self, state: DebateState, override_belief: float | None = None) -> dict:
         belief = override_belief if override_belief is not None else state.belief
@@ -414,7 +375,7 @@ class DebateService:
         state.history.append(RoundRecord(side=side, argument=argument, belief_after=new_belief))
         state.belief = new_belief
         state.belief_history.append(new_belief)
-        
+
         if db and db_debate:
             round_rec = RoundRecordModel(
                 debate_id=db_debate.id,

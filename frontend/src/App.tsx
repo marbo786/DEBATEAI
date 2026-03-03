@@ -1,20 +1,27 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@tanstack/react-query";
-import { startDebate, streamDebateTurn, submitDebateMove, getSummary, DebateStatePayload, SummaryPayload } from "./api";
+import {
+  startDebate,
+  streamDebateTurn,
+  submitDebateMove,
+  getSummary,
+} from "./api";
+import type { DebateState, SummaryPayload, StreamEvent } from "./types";
 import TopicInput from "./components/TopicInput";
 import DebateView from "./components/DebateView";
 import SummaryCard from "./components/SummaryCard";
 
-export default function App() {
-  const [debate, setDebate] = useState<{
-    debate_id?: string;
-    state: DebateStatePayload;
-    summary: SummaryPayload;
-    facts_from_api: boolean;
-  } | null>(null);
+interface DebateSession {
+  debate_id: string;
+  state: DebateState;
+  summary: SummaryPayload;
+  facts_from_api: boolean;
+}
 
-  const [streamingState, setStreamingState] = useState<DebateStatePayload | null>(null);
+export default function App() {
+  const [debate, setDebate] = useState<DebateSession | null>(null);
+  const [streamingState, setStreamingState] = useState<DebateState | null>(null);
   const [activeTyping, setActiveTyping] = useState<{ side: "pro" | "con"; text: string } | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -25,18 +32,19 @@ export default function App() {
   const [isDone, setIsDone] = useState(false);
 
   const cancelStreamRef = useRef<(() => void) | null>(null);
-  // Prevent double-triggering next turn 
+  // Prevent double-triggering next turn
   const isTurnInFlightRef = useRef(false);
 
   const [overrideFeedback, setOverrideFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const overrideMutation = useMutation({
-    mutationFn: ({ id, overrideAudience }: { id: string; overrideAudience: number }) => getSummary(id, overrideAudience),
+    mutationFn: ({ id, overrideAudience }: { id: string; overrideAudience: number }) =>
+      getSummary(id, overrideAudience),
     onSuccess: (s) => {
       setDebate((d) => (d ? { ...d, summary: s } : d));
       setOverrideFeedback({ type: "success", message: "Summary updated for selected audience." });
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       setOverrideFeedback({ type: "error", message: e?.message ?? "Failed to override summary." });
     },
   });
@@ -63,14 +71,19 @@ export default function App() {
     try {
       const res = await startDebate(topic, 6, persona, userSide);
       const initialState = res.state;
-      setDebate({ debate_id: res.debate_id, state: initialState, facts_from_api: res.facts_from_api, summary: res.summary });
+      setDebate({
+        debate_id: res.debate_id,
+        state: initialState,
+        facts_from_api: res.facts_from_api,
+        summary: res.summary,
+      });
       setStreamingState(initialState);
       setIsStarting(false);
       // Kick off the first turn
       startNextTurn(res.debate_id);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsStarting(false);
-      setStreamError(err.message);
+      setStreamError(err instanceof Error ? err.message : "An unexpected error occurred.");
     }
   };
 
@@ -82,7 +95,7 @@ export default function App() {
 
     const cancel = streamDebateTurn(
       debateId,
-      (event) => {
+      (event: StreamEvent) => {
         if (event.type === "typing") {
           setActiveTyping((prev) => ({
             side: event.side,
@@ -94,19 +107,15 @@ export default function App() {
           setDebate((d) => d ? { ...d, state: event.state } : d);
         } else if (event.type === "waiting_for_user") {
           setActiveTyping(null);
-          if (event.state) {
-            setStreamingState(event.state);
-            setDebate((d) => d ? { ...d, state: event.state } : d);
-          }
+          setStreamingState(event.state);
+          setDebate((d) => d ? { ...d, state: event.state } : d);
           setIsStreaming(false);
           isTurnInFlightRef.current = false;
           setIsWaitingForUser(true);
         } else if (event.type === "turn_complete") {
           setActiveTyping(null);
-          if (event.state) {
-            setStreamingState(event.state);
-            setDebate((d) => d ? { ...d, state: event.state } : d);
-          }
+          setStreamingState(event.state);
+          setDebate((d) => d ? { ...d, state: event.state } : d);
           isTurnInFlightRef.current = false;
           // Small pacing delay so the user can read the completed argument
           setTimeout(() => startNextTurn(debateId), 1200);
@@ -119,11 +128,11 @@ export default function App() {
           setStreamingState(null);
         }
       },
-      (err) => {
+      (err: Error) => {
         setStreamError(err.message);
         setIsStreaming(false);
         isTurnInFlightRef.current = false;
-      }
+      },
     );
     cancelStreamRef.current = cancel;
   };
@@ -141,8 +150,8 @@ export default function App() {
       setUserText("");
       setIsSubmitting(false);
       startNextTurn(debate.debate_id);
-    } catch (err: any) {
-      setStreamError(err.message);
+    } catch (err: unknown) {
+      setStreamError(err instanceof Error ? err.message : "Failed to submit move.");
       setIsSubmitting(false);
       setIsWaitingForUser(true);
     }
@@ -237,9 +246,11 @@ export default function App() {
                 onChange={(e) => setUserText(e.target.value)}
                 disabled={isSubmitting}
                 placeholder="E.g., Despite the risks, the economic upside strongly justifies…"
+                maxLength={2000}
                 className="w-full rounded-xl bg-slate-900/80 border border-slate-700/60 p-3 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500/60 min-h-[100px] transition text-sm"
               />
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-600">{userText.length}/2000</span>
                 <button
                   type="submit"
                   disabled={isSubmitting || !userText.trim()}

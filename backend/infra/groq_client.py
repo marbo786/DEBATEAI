@@ -1,4 +1,4 @@
-"""Fetch pro/con debate facts from Groq API."""
+"""Groq API client: fetch facts and generate text completions."""
 import json
 import logging
 import os
@@ -8,7 +8,7 @@ import httpx
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.1-8b-instant"
-TIMEOUT = 4.0
+TIMEOUT = 8.0  # Increased from 4s for reliability
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ Output a single JSON object with exactly two keys: "pro" and "con".
 Each claim should be one sentence. Output valid JSON only, no markdown or code fences.'''
 
     try:
-        logger.warning(f"Starting httpx post to {GROQ_URL}")
+        logger.info(f"Requesting facts from Groq for topic: {topic!r}")
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.post(
                 GROQ_URL,
@@ -53,7 +53,7 @@ Each claim should be one sentence. Output valid JSON only, no markdown or code f
                     "temperature": 0.3,
                 },
             )
-        logger.warning(f"Finished httpx post to {GROQ_URL}. Status: {response.status_code}")
+        logger.info(f"Groq facts response: status={response.status_code}")
         response.raise_for_status()
         data = response.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
@@ -82,3 +82,35 @@ Each claim should be one sentence. Output valid JSON only, no markdown or code f
         return None
 
     return pro_claims, con_claims
+
+
+async def generate_completion(prompt: str) -> str | None:
+    """
+    Send a single prompt to Groq and return the text response.
+    Returns None if GROQ_API_KEY is unset or the call fails.
+    """
+    key = (os.environ.get("GROQ_API_KEY") or "").strip()
+    if not key:
+        return None
+
+    try:
+        logger.info("Calling Groq for completion")
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.4,
+                },
+            )
+        response.raise_for_status()
+        data = response.json()
+        return (data.get("choices") or [{}])[0].get("message", {}).get("content") or None
+    except Exception as exc:
+        logger.error(f"Groq completion failed: {exc}")
+        return None

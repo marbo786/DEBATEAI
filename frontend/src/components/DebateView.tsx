@@ -2,28 +2,13 @@ import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AgentPanel from "./AgentPanel";
 import BeliefMeter from "./BeliefMeter";
-
-export interface DebateHistoryItem {
-  side: "pro" | "con";
-  argument: any;
-  belief_after: number;
-}
-
-export interface DebateState {
-  topic: string;
-  round: number;
-  max_rounds: number;
-  belief: number;
-  winner?: "pro" | "con" | "tie" | null;
-  history?: DebateHistoryItem[];
-  user_side?: string;
-}
+import type { DebateState, DebateHistoryItem, Side } from "../types";
 
 export interface DebateViewProps {
   state: DebateState | null;
   history: DebateHistoryItem[] | null | undefined;
   factsFromApi: boolean;
-  activeTyping?: { side: "pro" | "con"; text: string } | null;
+  activeTyping?: { side: Side; text: string } | null;
   isStreaming?: boolean;
 }
 
@@ -60,7 +45,7 @@ const roundVariants = {
   show: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.45, ease: "easeOut" },
+    transition: { duration: 0.45, ease: "easeOut" as const },
   },
 };
 

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type { Argument, Side } from "../types";
 
 export interface AgentPanelProps {
-  side: "pro" | "con";
-  argument?: any;
+  side: Side;
+  argument?: Argument | null;
   roundLabel?: string | null;
   isActive: boolean;
   typingText?: string | null;
@@ -70,7 +71,7 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
         <p className={`text-slate-100 font-semibold text-base leading-relaxed min-h-[80px] typing-cursor`}>
           {typingText}
         </p>
-      ) : (
+      ) : arg ? (
         <>
           <p className="text-slate-100 font-semibold text-base leading-relaxed mb-4">{arg.claim}</p>
 
@@ -132,7 +133,7 @@ export default function AgentPanel({ side, argument: arg, roundLabel, isActive, 
             )}
           </AnimatePresence>
         </>
-      )}
+      ) : null}
     </motion.div>
   );
 }
