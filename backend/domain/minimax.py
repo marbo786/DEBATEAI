@@ -1,6 +1,10 @@
 """
 Adversarial search: Minimax with Alpha-Beta pruning.
 Pro maximizes belief impact, Con minimizes. Depth 2-3, pruning logged.
+
+Phase 2 enhancements:
+- get_best_argument accepts optional LLM-generated extra_candidates
+- eval_state includes momentum, rebuttal, and diversity bonuses
 """
 from dataclasses import dataclass, field
 from .state import DebateState, Argument, Side, RoundRecord
@@ -23,16 +27,59 @@ class PruningLogEntry:
 def eval_state(state: DebateState, belief_model: BeliefModel, side: Side) -> float:
     """
     Evaluation for minimax: from Pro's perspective (higher = better for Pro).
-    Combines: current belief (Pro wants high), last argument strengths, consistency.
+
+    Combines:
+    - Current belief (core signal)
+    - Last argument strength bonus/penalty
+    - Momentum: consecutive moves favouring same side (+0.05)
+    - Rebuttal bonus: attacking opponent's claim directly (+0.04)
+    - Diversity bonus: using a reasoning type not seen in last 2 same-side moves (+0.03)
     """
     score = state.belief  # 0..1, Pro wants to maximize
-    # Small bonus/penalty from last round if any
-    if state.history:
-        last = state.history[-1]
+
+    if not state.history:
+        return score
+
+    last = state.history[-1]
+
+    # Last argument strength signal
+    if last.side == Side.PRO:
+        score += 0.1 * last.argument.strength
+    else:
+        score -= 0.1 * last.argument.strength
+
+    # --- Momentum bonus ---
+    # If the last 2 moves both shifted belief in the same direction, reward momentum
+    if len(state.belief_history) >= 3:
+        delta1 = state.belief_history[-1] - state.belief_history[-2]
+        delta2 = state.belief_history[-2] - state.belief_history[-3]
+        if delta1 > 0 and delta2 > 0:
+            score += 0.05  # Pro has momentum
+        elif delta1 < 0 and delta2 < 0:
+            score -= 0.05  # Con has momentum
+
+    # --- Rebuttal bonus ---
+    # Arguments that directly attack the opponent get a small bonus for strategic value
+    if last.argument.attack_target is not None:
         if last.side == Side.PRO:
-            score += 0.1 * last.argument.strength
+            score += 0.04
         else:
-            score -= 0.1 * last.argument.strength
+            score -= 0.04
+
+    # --- Diversity bonus ---
+    # Using a reasoning type not seen in the last 2 same-side moves keeps debate varied
+    same_side_recent = [
+        r.argument.reasoning_type
+        for r in state.history[-4:]
+        if r.side == last.side
+    ][-2:]  # last 2 moves for that side
+
+    if len(same_side_recent) >= 1 and last.argument.reasoning_type not in same_side_recent[:-1]:
+        if last.side == Side.PRO:
+            score += 0.03
+        else:
+            score -= 0.03
+
     return max(0.0, min(1.0, score))
 
 
@@ -63,6 +110,8 @@ class MinimaxAgent:
     """
     Minimax with Alpha-Beta pruning. Pro = maximizer, Con = minimizer.
     Depth 2-3; logs pruned branches.
+
+    Phase 2: accepts optional LLM-generated extra_candidates at root level.
     """
 
     def __init__(
@@ -80,19 +129,38 @@ class MinimaxAgent:
         self,
         state: DebateState,
         side: Side,
+        extra_candidates: list[Argument] | None = None,
     ) -> tuple[Argument | None, float]:
         """
         Returns (best argument, value). Uses alpha-beta; fills pruning_log.
+
+        Args:
+            state: Current debate state.
+            side: Which side is moving (PRO or CON).
+            extra_candidates: Optional LLM-generated arguments to add to the
+                candidate pool at the root level. These are evaluated by minimax
+                alongside template-generated candidates.
         """
         self.pruning_log.clear()
-        candidates = self.arg_gen.generate_arguments(
+        template_candidates = self.arg_gen.generate_arguments(
             side=side,
             topic=state.topic,
             pro_claims=state.pro_claims,
             con_claims=state.con_claims,
             history=state.history,
             count=6,
+            used_claims=state.used_claims,
         )
+
+        # Merge LLM candidates into the pool (deduplicate by claim text)
+        if extra_candidates:
+            existing_claims = {a.claim for a in template_candidates}
+            for llm_arg in extra_candidates:
+                if llm_arg.claim not in existing_claims:
+                    template_candidates.append(llm_arg)
+                    existing_claims.add(llm_arg.claim)
+
+        candidates = template_candidates
         if not candidates:
             return None, eval_state(state, self.belief_model, side)
 
@@ -142,6 +210,7 @@ class MinimaxAgent:
             state.con_claims,
             state.history,
             count=4,
+            used_claims=state.used_claims,
         )
         if not candidates:
             return eval_state(state, self.belief_model, Side.PRO)
@@ -177,6 +246,7 @@ class MinimaxAgent:
             state.con_claims,
             state.history,
             count=4,
+            used_claims=state.used_claims,
         )
         if not candidates:
             return eval_state(state, self.belief_model, Side.PRO)

@@ -8,6 +8,29 @@ import random
 from .state import Argument, RoundRecord, Side, ReasoningType
 
 
+def _is_too_similar(claim: str, used_claims: set, threshold: float = 0.60) -> bool:
+    """
+    Returns True if `claim` has >threshold Jaccard word-overlap with any used claim.
+    Used to prevent the same argument from appearing multiple times across rounds.
+    """
+    words = set(claim.lower().split())
+    # Remove very common stop words so overlap is content-based
+    stop = {"the", "a", "an", "is", "are", "of", "and", "to", "in", "that",
+            "it", "for", "on", "with", "as", "by", "this", "from", "or"}
+    words -= stop
+    if not words:
+        return False
+    for used in used_claims:
+        used_words = set(used.lower().split()) - stop
+        if not used_words:
+            continue
+        intersection = words & used_words
+        union = words | used_words
+        if union and len(intersection) / len(union) >= threshold:
+            return True
+    return False
+
+
 def _last_opponent_record(history: list, side: Side):
     for i in range(len(history) - 1, -1, -1):
         if history[i].side != side:
@@ -58,10 +81,12 @@ class ArgumentGenerator:
         con_claims: list[str],
         history: list,
         count: int = 6,
+        used_claims: set | None = None,
     ) -> list[Argument]:
         """
         Generate candidate arguments. Content varies by current round and
         references the opponent's last argument when present.
+        Filters out arguments whose claims are too similar to already-used claims.
         """
         claims = pro_claims if side == Side.PRO else con_claims
         opp_claims = con_claims if side == Side.PRO else pro_claims
@@ -86,6 +111,11 @@ class ArgumentGenerator:
         )
 
         self._rng.shuffle(args)
+
+        # Deduplication: filter claims too similar to already-used ones
+        if used_claims:
+            args = [a for a in args if not _is_too_similar(a.claim, used_claims)]
+
         return args[:count]
 
 

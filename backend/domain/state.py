@@ -18,6 +18,7 @@ class ReasoningType(str, Enum):
     ETHICAL = "ethical"
     RISK = "risk"
 
+
 class Persona(str, Enum):
     DEFAULT = "default"
     SKEPTIC = "skeptic"
@@ -82,6 +83,8 @@ class DebateState:
     max_rounds: int = 6
     winner: Optional[Side] = None
     turning_point_round: Optional[int] = None
+    # Tracks claims used so far — used for deduplication; not sent to frontend
+    used_claims: set = field(default_factory=set)
 
     def to_dict(self) -> dict:
         # "round" = current debate round (1-based), not move count
@@ -114,4 +117,5 @@ class DebateState:
             max_rounds=self.max_rounds,
             winner=self.winner,
             turning_point_round=self.turning_point_round,
+            used_claims=self.used_claims.copy(),
         )
