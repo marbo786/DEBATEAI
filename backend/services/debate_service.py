@@ -401,20 +401,37 @@ class DebateService:
                     yield f"data: {json.dumps({'type': 'turn_complete', 'state': state.to_dict()})}\n\n"
 
     def summarize(self, state: DebateState, override_belief: float | None = None) -> dict:
-        belief = override_belief if override_belief is not None else state.belief
-        winner = (
-            ("pro" if belief > 0.5 else "con" if belief < 0.5 else "tie")
-            if override_belief is not None
-            else (state.winner.value if state.winner else "tie")
-        )
+        """
+        Compute debate summary.
+
+        override_belief: When set, replays the full argument history through a
+        fresh BeliefModel initialized at this prior (0.0=con-biased, 0.5=neutral,
+        1.0=pro-biased). This gives a genuine "what would have happened with a
+        different audience" score rather than just hardcoding the endpoint.
+        """
+        if override_belief is not None:
+            # Replay history through a BeliefModel at the chosen prior
+            prior = max(0.0, min(1.0, override_belief))
+            # Use same sensitivity as default; only the prior changes
+            replay_model = BeliefModel(sensitivity=self.belief_model.sensitivity, prior=prior)
+            belief = prior
+            for record in state.history:
+                pro_arg = record.argument if record.side == Side.PRO else None
+                con_arg = record.argument if record.side == Side.CON else None
+                belief = replay_model.update_from_arguments(belief, pro_arg, con_arg)
+            winner = "pro" if belief > 0.5 else "con" if belief < 0.5 else "tie"
+        else:
+            belief = state.belief
+            winner = state.winner.value if state.winner else "tie"
+
         return {
             "topic": state.topic,
             "winner": winner,
-            "final_belief": belief,
+            "final_belief": round(belief, 4),
             "final_pro_pct": round(belief * 100, 1),
             "final_con_pct": round((1 - belief) * 100, 1),
             "turning_point_round": state.turning_point_round,
-            "total_rounds": state.round_number,
+            "total_rounds": state.round_number // 2,  # moves -> debate rounds
         }
 
     async def _apply(
@@ -463,6 +480,17 @@ class DebateService:
 
     @staticmethod
     def _turning_point(state: DebateState) -> int | None:
+        """
+        Finds the debate round where the largest single-move belief swing occurred.
+
+        belief_history[0] = initial prior (before any move).
+        belief_history[i] = belief after move i (i >= 1).
+        Move i maps to debate round ceil(i/2) = (i + 1) // 2:
+          i=1 (PRO round 1) -> round 1
+          i=2 (CON round 1) -> round 1
+          i=3 (PRO round 2) -> round 2
+          i=4 (CON round 2) -> round 2  etc.
+        """
         if len(state.belief_history) < 2:
             return None
         max_swing = 0.0
@@ -471,5 +499,5 @@ class DebateService:
             swing = abs(state.belief_history[i] - state.belief_history[i - 1])
             if swing > max_swing:
                 max_swing = swing
-                turn_round = (i // 2) + 1
+                turn_round = (i + 1) // 2  # ceil(i/2) maps move -> round
         return turn_round or 1

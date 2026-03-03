@@ -9,23 +9,26 @@ export interface SummaryCardProps {
   onOverride: (value: number | null) => Promise<boolean>;
 }
 
+// These are the STARTING PRIOR beliefs for the replay.
+// 0.65 = audience starts leaning Pro; 0.5 = neutral; 0.35 = audience starts leaning Con.
+// The backend replays all debate history through a BeliefModel at this prior.
 const AUDIENCE_OPTIONS = [
   {
-    value: 1,
-    label: "Pro Believer",
-    desc: "Audience strongly favors Pro",
+    value: 0.65,
+    label: "Pro-Leaning",
+    desc: "Audience starts at 65% Pro",
     accent: "emerald",
   },
   {
     value: 0.5,
     label: "Neutral",
-    desc: "Unbiased audience",
+    desc: "Unbiased starting audience",
     accent: "slate",
   },
   {
-    value: 0,
-    label: "Con Believer",
-    desc: "Audience strongly favors Con",
+    value: 0.35,
+    label: "Con-Leaning",
+    desc: "Audience starts at 35% Con",
     accent: "rose",
   },
 ];
@@ -203,7 +206,7 @@ export default function SummaryCard({ summary, state, onOverride }: SummaryCardP
             )}
           </div>
           <p className="text-xs text-slate-600 mb-3">
-            See how the summary changes if you imagine a biased audience watching this debate.
+            Replay the debate through a different starting audience. The arguments stay the same — only the audience bias changes.
           </p>
           <div className="grid grid-cols-3 gap-2">
             {AUDIENCE_OPTIONS.map((opt) => {
