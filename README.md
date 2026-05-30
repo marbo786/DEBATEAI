@@ -1,66 +1,158 @@
+<div align="center">
+
 # ⚔️ DebateAI
 
-An intelligent debate simulation platform where AI agents argue opposing sides of any topic using **adversarial search**, **minimax reasoning**, and **probabilistic belief modelling**. Features real-time streaming, LLM-powered argument generation, live belief trajectory visualisation, and Man vs. Machine interactive mode.
+### Multi-Agent Debate Simulation Platform
+
+**AI agents argue opposing sides of any topic using adversarial search, probabilistic belief modelling, and LLM-driven argument generation**
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React_18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
+
+🚀 **[Try it Live →](https://debateai-green.vercel.app)**
+
+</div>
+
+---
+
+## 🧠 What Is DebateAI?
+
+DebateAI is an intelligent debate simulation platform with two modes:
+
+- **AI vs. AI** — Watch two minimax agents argue any topic to completion
+- **Man vs. Machine** — Play as Pro or Con and debate the AI in real-time
+
+Every argument is scored by a Bayesian belief model, visualised live on an animated belief trajectory chart, and powered (optionally) by Groq's `llama-3.1-8b-instant` LLM for semantically rich, context-aware arguments.
 
 ---
 
 ## ✨ Features
 
-- **AI vs. AI Debates** — Watch two minimax agents argue any topic to completion
-- **Man vs. Machine Mode** — Play as Pro or Con and debate the AI in real-time
-- **LLM-Powered Arguments** — Groq (`llama-3.1-8b-instant`) generates semantically rich, round-themed arguments; minimax picks the best from LLM + template candidates
-- **Probabilistic Belief Meter** — Live spring-animated bar showing who's winning; updates after every move
-- **Belief Trajectory Chart** — Animated SVG line chart plotting audience belief round by round with PRO/CON zone labels, winner chips per round, turning point column highlight, and hover tooltips
-- **Turning Point Detection** — Identifies the round with the largest net audience belief shift (round-level, not per-move)
-- **User Move Feedback** — After submitting an argument, an analysis panel appears showing extracted claim, animated strength bar, and reasoning type badge
-- **Round Progress Dots** — Visual stepper between chart and rounds, colour-coded by round winner
-- **Streaming SSE** — Word-by-word typing animations streamed via Server-Sent Events
-- **Multiple Audience Personas** — Skeptic, Credulous, Balanced, or Pro-leaning audiences that change how arguments land
-- **Re-score for Audience** — Replay the debate from a different audience prior belief after it finishes
-- **Persistent Storage** — All debates and rounds saved to PostgreSQL via SQLAlchemy + asyncpg
-- **Summary & Download** — Full debate summary card with PNG export
-- **Mobile-Optimised** — Responsive layout across all breakpoints; iOS tap-zoom prevention
+| Feature | Description |
+|---------|-------------|
+| 🤖 **Minimax Search** | Depth-3 adversarial search with momentum, rebuttal, and diversity heuristics |
+| 📊 **Live Belief Meter** | Spring-animated bar showing audience belief shift after every move |
+| 📈 **Belief Trajectory Chart** | Animated SVG line chart plotting audience belief round by round |
+| 🔄 **Turning Point Detection** | Identifies the round with the largest net belief shift |
+| 🎭 **Audience Personas** | Skeptic, Credulous, Balanced, or Pro-leaning — changes how arguments land |
+| 💬 **User Move Feedback** | Shows extracted claim, animated strength bar, and reasoning type badge |
+| 📡 **Streaming SSE** | Word-by-word typing animations streamed via Server-Sent Events |
+| 🔁 **Re-score for Audience** | Replay any debate from a different audience prior belief |
+| 💾 **Persistent Storage** | All debates and rounds saved to PostgreSQL via SQLAlchemy + asyncpg |
+| 📥 **Summary & Download** | Full debate summary card with PNG export |
+| 📱 **Mobile-Optimised** | Responsive layout across all breakpoints; iOS tap-zoom prevention |
 
 ---
 
-## 🗂️ Project Structure
+## 🏗️ Architecture
+
+```
+User (Browser)
+     │
+     ▼
+┌─────────────────────────────────┐
+│  React + TypeScript Frontend    │  ← Vite, Framer Motion, Tailwind CSS
+│  (Vercel — frontend project)    │
+└──────────────┬──────────────────┘
+               │  REST + SSE (Server-Sent Events)
+               ▼
+┌─────────────────────────────────┐
+│  FastAPI Backend                │  ← Uvicorn, async Python
+│  (Vercel — backend project)     │
+│                                 │
+│  ┌─────────────┐                │
+│  │  Minimax    │ ← depth-3 search with heuristics
+│  │  Agent      │
+│  └──────┬──────┘
+│         │ candidates
+│  ┌──────▼──────┐
+│  │  Groq LLM   │ ← llama-3.1-8b-instant (optional)
+│  │  + Templates│
+│  └──────┬──────┘
+│         │ scored arguments
+│  ┌──────▼──────┐
+│  │  Bayesian   │ ← belief = belief + sensitivity × (strength − 0.5) × side
+│  │  Belief     │
+│  │  Model      │
+│  └──────┬──────┘
+│         │
+└─────────┼───────────────────────┘
+          │
+          ▼
+┌─────────────────┐
+│   PostgreSQL    │  ← DebateRecord + RoundRecordModel (Alembic migrations)
+└─────────────────┘
+```
+
+---
+
+## 🔄 Turn Flow
+
+```
+1. POST /api/start
+   └─ Initialise debate record in DB
+   └─ Generate seed claims (Groq or templates)
+   └─ Return debate ID + empty state
+
+2. GET /api/debate/{id}/stream_turn   [SSE stream]
+   └─ Generate LLM + template argument candidates
+   └─ Minimax (depth 3) picks the best argument
+   └─ Stream word-by-word typing events to frontend
+   └─ Commit move to DB → signal turn_complete / waiting_for_user
+
+3. POST /api/debate/{id}/move         [user turn only]
+   └─ Groq / heuristics parse user argument (claim + strength)
+   └─ Commit to DB → AI takes next turn
+
+4. POST /api/summary/{id}
+   └─ Return winner, trajectory, turning point
+   └─ Optional: re-score with override_audience
+```
+
+---
+
+## 📁 Project Structure
 
 ```
 DEBATEAI/
-├── backend/               # FastAPI Python backend
+├── backend/
 │   ├── api/
-│   │   ├── index.py       # Vercel serverless entrypoint / FastAPI app factory
-│   │   └── routes.py      # API route handlers (start, stream_turn, move, summary)
-│   ├── domain/            # Pure business logic (no I/O)
-│   │   ├── belief.py      # BeliefModel — Bayesian argument scoring
-│   │   ├── minimax.py     # MinimaxAgent — adversarial argument search with momentum/rebuttal/diversity heuristics
-│   │   ├── reasoning.py   # ArgumentGenerator — claim/argument generation + user argument parsing
-│   │   └── state.py       # DebateState, Argument, Side, Persona datatypes
-│   ├── infra/             # Infrastructure (DB, external APIs)
-│   │   ├── database.py    # SQLAlchemy async engine + session factory
-│   │   ├── models.py      # ORM models: DebateRecord, RoundRecordModel
-│   │   └── groq_client.py # Groq LLM client: fact seeding + structured argument generation
+│   │   ├── index.py            # Vercel serverless entrypoint / FastAPI app factory
+│   │   └── routes.py           # Route handlers: start, stream_turn, move, summary
+│   ├── domain/                 # Pure business logic (zero I/O)
+│   │   ├── belief.py           # BeliefModel — Bayesian argument scoring
+│   │   ├── minimax.py          # MinimaxAgent — adversarial search + heuristics
+│   │   ├── reasoning.py        # ArgumentGenerator — claim generation + user parsing
+│   │   └── state.py            # DebateState, Argument, Side, Persona datatypes
+│   ├── infra/
+│   │   ├── database.py         # SQLAlchemy async engine + session factory
+│   │   ├── models.py           # ORM: DebateRecord, RoundRecordModel
+│   │   └── groq_client.py      # Groq LLM client: fact seeding + argument generation
 │   ├── services/
-│   │   └── debate_service.py # Orchestration: initialize, stream turns, summarize, turning point
-│   ├── alembic/           # Database migrations
+│   │   └── debate_service.py   # Orchestration: initialize, stream, summarize
+│   ├── alembic/                # Database migrations
 │   ├── tests/
-│   │   └── test_engine.py # 32 unit tests covering belief model, minimax, deduplication, turning point
+│   │   └── test_engine.py      # 32 unit tests
 │   ├── requirements.txt
 │   └── vercel.json
 │
-└── frontend/              # React + TypeScript + Vite frontend
+└── frontend/
     ├── src/
     │   ├── components/
-    │   │   ├── AgentPanel.tsx    # Per-side argument card with typing animation + strength bar
-    │   │   ├── BeliefChart.tsx   # Animated SVG belief trajectory chart
-    │   │   ├── BeliefMeter.tsx   # Spring-animated belief bar
-    │   │   ├── DebateView.tsx    # Progressive round-by-round layout + round progress dots
-    │   │   ├── SummaryCard.tsx   # Post-debate summary, audience override, PNG download
-    │   │   └── TopicInput.tsx    # Topic entry and game mode configuration
-    │   ├── api.ts          # Typed API client (fetch + SSE)
-    │   ├── types.ts        # Shared TypeScript interfaces (single source of truth)
-    │   ├── App.tsx         # Root state machine, streaming, user move feedback panel
-    │   └── index.css       # Global styles and design tokens
+    │   │   ├── AgentPanel.tsx   # Argument card with typing animation + strength bar
+    │   │   ├── BeliefChart.tsx  # Animated SVG belief trajectory chart
+    │   │   ├── BeliefMeter.tsx  # Spring-animated belief bar
+    │   │   ├── DebateView.tsx   # Round-by-round layout + progress dots
+    │   │   ├── SummaryCard.tsx  # Post-debate summary + PNG download
+    │   │   └── TopicInput.tsx   # Topic entry + game mode config
+    │   ├── api.ts               # Typed API client (fetch + SSE)
+    │   ├── types.ts             # Shared TypeScript interfaces
+    │   ├── App.tsx              # Root state machine + streaming logic
+    │   └── index.css            # Global styles and design tokens
     └── vercel.json
 ```
 
@@ -79,15 +171,15 @@ DEBATEAI/
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate     # Windows
-# venv/bin/activate       # macOS/Linux
+venv\Scripts\activate       # Windows
+# source venv/bin/activate  # macOS/Linux
+
 pip install -r requirements.txt
 
-# Set environment variables (see below)
 # Run DB migrations
 alembic upgrade head
 
-# Start the dev server (from project root)
+# Start dev server (from project root)
 uvicorn backend.api.index:app --reload --port 5000
 ```
 
@@ -97,7 +189,9 @@ uvicorn backend.api.index:app --reload --port 5000
 cd frontend
 npm install
 
-# Optional: set VITE_API_BASE_URL in .env.local if backend is on a different host
+# Optional: set backend URL
+echo "VITE_API_BASE_URL=http://localhost:5000" > .env.local
+
 npm run dev
 ```
 
@@ -108,62 +202,32 @@ npm run dev
 Deployed as **two separate Vercel projects** from the same GitHub repository.
 
 ### Backend Project
-- **Root Directory:** `backend`
-- **Environment Variables:**
-  - `DATABASE_URL` — PostgreSQL connection string (e.g. from Neon)
-  - `GROQ_API_KEY` — Optional; enables LLM fact seeding and argument generation
+
+| Setting | Value |
+|---------|-------|
+| Root Directory | `backend` |
+| `DATABASE_URL` | PostgreSQL connection string (e.g. from Neon) |
+| `GROQ_API_KEY` | Groq API key — optional, enables LLM generation |
 
 ### Frontend Project
-- **Root Directory:** `frontend`
-- **Framework Preset:** Vite
-- **Environment Variables:**
-  - `VITE_API_BASE_URL` — URL of your deployed backend (no trailing `/`)
 
-> ⚠️ After adding `VITE_API_BASE_URL`, **redeploy** (not just save) — Vite bakes env vars into the bundle at build time.
+| Setting | Value |
+|---------|-------|
+| Root Directory | `frontend` |
+| Framework Preset | Vite |
+| `VITE_API_BASE_URL` | Full URL of your deployed backend (no trailing `/`) |
+
+> ⚠️ After adding `VITE_API_BASE_URL`, **redeploy** (don't just save) — Vite bakes env vars into the bundle at build time.
 
 ---
 
 ## 🔑 Environment Variables
 
 | Variable | Where | Description |
-|---|---|---|
-| `DATABASE_URL` | Backend | PostgreSQL DSN. `postgresql://...` is auto-converted to `asyncpg` format |
-| `GROQ_API_KEY` | Backend | Groq API key for LLM fact seeding + argument generation (optional) |
+|----------|-------|-------------|
+| `DATABASE_URL` | Backend | PostgreSQL DSN — `postgresql://...` auto-converted to `asyncpg` format |
+| `GROQ_API_KEY` | Backend | Groq API key for LLM argument generation (optional, graceful fallback) |
 | `VITE_API_BASE_URL` | Frontend | Full base URL of your deployed backend |
-
----
-
-## 🤖 How It Works
-
-### Turn Flow
-1. **Topic Input** — User selects topic, audience persona, and play mode
-2. **`POST /api/start`** — Backend initialises a debate record in PostgreSQL, generates seed claims (optionally via Groq), returns empty state + debate ID
-3. **`GET /api/debate/{id}/stream_turn`** — Frontend opens an SSE stream. The backend:
-   - Generates LLM candidates via Groq + template candidates from `ArgumentGenerator`
-   - Runs Minimax (depth 3) with momentum, rebuttal, and diversity heuristics to pick the best argument
-   - Streams word-by-word typing events, then commits the move to the database
-   - Signals `turn_complete` or `waiting_for_user`
-4. **Frontend State Machine** — After each `turn_complete`, waits 1.2s then requests the next turn
-5. **`POST /api/debate/{id}/move`** — User-submitted arguments are parsed by Groq (semantic analysis) or heuristics, then committed before the AI takes its next turn
-6. **`POST /api/summary/{id}`** — Returns winner, belief trajectory, turning point round, and re-scores if `override_audience` is provided
-
-### Belief Model
-- Each argument has a `strength` score (0–1) from LLM or heuristics
-- `new_belief = belief + sensitivity × (strength − 0.5) × side_sign`
-- Turning point = the complete debate round with the largest `|belief_end − belief_start|`
-
----
-
-## 💻 Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, TypeScript, Vite, Framer Motion, Tailwind CSS |
-| Backend | FastAPI, Python 3.10, Uvicorn |
-| Database | PostgreSQL, SQLAlchemy (async), asyncpg, Alembic |
-| AI / Reasoning | Custom Minimax + Bayesian belief model + argument deduplication |
-| LLM | Groq API (`llama-3.1-8b-instant`) — optional, graceful fallback |
-| Deployment | Vercel (two projects) |
 
 ---
 
@@ -178,3 +242,34 @@ cd frontend && npx tsc --noEmit
 ```
 
 Tests cover: belief model, minimax heuristics, argument deduplication (Jaccard similarity), turning point calculation, and debate state serialisation.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| 🖥️ Frontend | React 18, TypeScript, Vite, Framer Motion, Tailwind CSS |
+| ⚡ Backend | FastAPI, Python 3.10, Uvicorn |
+| 🗄️ Database | PostgreSQL, SQLAlchemy (async), asyncpg, Alembic |
+| 🤖 AI / Reasoning | Custom Minimax + Bayesian belief model + Jaccard deduplication |
+| 🧠 LLM | Groq API (`llama-3.1-8b-instant`) — optional, graceful fallback |
+| 🚀 Deployment | Vercel (two projects) |
+
+---
+
+## 👤 Author
+
+**Mohsin Saeed**
+📧 [marboo786@gmail.com](mailto:marboo786@gmail.com)
+🐙 [github.com/marbo786](https://github.com/marbo786)
+
+---
+
+<div align="center">
+
+Built with ❤️ using FastAPI, React & Groq
+
+⭐ Star this repo if you found it interesting!
+
+</div>
