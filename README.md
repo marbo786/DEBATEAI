@@ -13,7 +13,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
 
-🚀 **[Try it Live →](https://debateai-green.vercel.app)**
+🚀 **[Try it Live →](https://debateai-frontend.vercel.app)**
 
 </div>
 
@@ -155,93 +155,6 @@ DEBATEAI/
     │   └── index.css            # Global styles and design tokens
     └── vercel.json
 ```
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- PostgreSQL (local or [Neon.tech](https://neon.tech) cloud)
-
-### Backend
-
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate       # Windows
-# source venv/bin/activate  # macOS/Linux
-
-pip install -r requirements.txt
-
-# Run DB migrations
-alembic upgrade head
-
-# Start dev server (from project root)
-uvicorn backend.api.index:app --reload --port 5000
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-
-# Optional: set backend URL
-echo "VITE_API_BASE_URL=http://localhost:5000" > .env.local
-
-npm run dev
-```
-
----
-
-## 🌐 Deployment (Vercel)
-
-Deployed as **two separate Vercel projects** from the same GitHub repository.
-
-### Backend Project
-
-| Setting | Value |
-|---------|-------|
-| Root Directory | `backend` |
-| `DATABASE_URL` | PostgreSQL connection string (e.g. from Neon) |
-| `GROQ_API_KEY` | Groq API key — optional, enables LLM generation |
-
-### Frontend Project
-
-| Setting | Value |
-|---------|-------|
-| Root Directory | `frontend` |
-| Framework Preset | Vite |
-| `VITE_API_BASE_URL` | Full URL of your deployed backend (no trailing `/`) |
-
-> ⚠️ After adding `VITE_API_BASE_URL`, **redeploy** (don't just save) — Vite bakes env vars into the bundle at build time.
-
----
-
-## 🔑 Environment Variables
-
-| Variable | Where | Description |
-|----------|-------|-------------|
-| `DATABASE_URL` | Backend | PostgreSQL DSN — `postgresql://...` auto-converted to `asyncpg` format |
-| `GROQ_API_KEY` | Backend | Groq API key for LLM argument generation (optional, graceful fallback) |
-| `VITE_API_BASE_URL` | Frontend | Full base URL of your deployed backend |
-
----
-
-## 🧪 Testing
-
-```bash
-# Backend — 32 unit tests
-python -m pytest backend/tests/test_engine.py -v
-
-# Frontend — TypeScript type check
-cd frontend && npx tsc --noEmit
-```
-
-Tests cover: belief model, minimax heuristics, argument deduplication (Jaccard similarity), turning point calculation, and debate state serialisation.
 
 ---
 
