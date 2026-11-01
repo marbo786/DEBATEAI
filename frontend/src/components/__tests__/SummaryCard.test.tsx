@@ -36,13 +36,13 @@ describe("SummaryCard overrides", () => {
     );
 
     render(<SummaryCard summary={summary} state={state} onOverride={onOverride} />);
-    const proButton = screen.getByRole("button", { name: /Pro Believer/i });
+    const proButton = screen.getByRole("button", { name: /Pro-Leaning/i });
 
     await userEvent.click(proButton);
 
-    expect(onOverride).toHaveBeenCalledWith(1);
+    expect(onOverride).toHaveBeenCalledWith(0.65);
     expect(proButton).toBeDisabled();
-    expect(screen.getByText("Pro 100%")).toBeInTheDocument();
+    expect(screen.getByText("Pro 65%")).toBeInTheDocument();
 
     resolveOverride!(true);
 
@@ -54,7 +54,7 @@ describe("SummaryCard overrides", () => {
 
     render(<SummaryCard summary={summary} state={state} onOverride={onOverride} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Con Believer/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Con-Leaning/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Pro 60%")).toBeInTheDocument();
